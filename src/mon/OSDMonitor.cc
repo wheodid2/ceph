@@ -2140,7 +2140,7 @@ void OSDMonitor::count_metadata(const string& field, Formatter *f)
   f->close_section();
 }
 
-void OSDMonitor::get_versions(std::map<string, list<string> > &versions)
+void OSDMonitor::get_versions(std::map<string, list<string>> &versions)
 {
   for (int osd = 0; osd < osdmap.get_max_osd(); ++osd) {
     if (osdmap.is_up(osd)) {
@@ -2436,7 +2436,6 @@ void OSDMonitor::_prune_update_trimmed(
 {
   dout(10) << __func__
            << " first " << first
-           << " last_pinned " << osdmap_manifest.get_last_pinned()
            << " last_pinned " << osdmap_manifest.get_last_pinned()
            << dendl;
 
@@ -14369,7 +14368,7 @@ void OSDMonitor::try_enable_stretch_mode(stringstream& ss, bool *okay,
   if (retval == -1) {
     ss << dividing_bucket << " is not a valid crush bucket type";
     *errcode = -ENOENT;
-    ceph_assert(!commit || dividing_id != -1);
+    ceph_assert(!commit || retval != -1);
     return;
   }
   vector<int> subtrees;
@@ -14386,7 +14385,7 @@ void OSDMonitor::try_enable_stretch_mode(stringstream& ss, bool *okay,
   if (new_crush_rule_result < 0) {
     ss << "unrecognized crush rule " << new_crush_rule;
     *errcode = new_crush_rule_result;
-    ceph_assert(!commit || new_crush_rule_result);
+    ceph_assert(!commit || (new_crush_rule_result > 0));
     return;
   }
   __u8 new_rule = static_cast<__u8>(new_crush_rule_result);
@@ -14406,7 +14405,7 @@ void OSDMonitor::try_enable_stretch_mode(stringstream& ss, bool *okay,
   if (bucket_count != 2) {
     ss << "currently we only support 2-site stretch clusters!";
     *errcode = -EINVAL;
-    ceph_assert(!commit);
+    ceph_assert(!commit || bucket_count == 2);
     return;
   }
   // TODO: check CRUSH rules for pools so that we are appropriately divided

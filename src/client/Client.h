@@ -259,6 +259,13 @@ public:
     Client *m_client;
   };
 
+  // snapshot info returned via get_snap_info(). nothing to do
+  // with SnapInfo on the MDS.
+  struct SnapInfo {
+    snapid_t id;
+    std::map<std::string, std::string> metadata;
+  };
+
   Client(Messenger *m, MonClient *mc, Objecter *objecter_);
   Client(const Client&) = delete;
   Client(const Client&&) = delete;
@@ -440,6 +447,8 @@ public:
   int sync_fs();
   int64_t drop_caches();
 
+  int get_snap_info(const char *path, const UserPerm &perms, SnapInfo *snap_info);
+
   // hpc lazyio
   int lazyio(int fd, int enable);
   int lazyio_propagate(int fd, loff_t offset, size_t count);
@@ -466,8 +475,9 @@ public:
   int enumerate_layout(int fd, vector<ObjectExtent>& result,
 		       loff_t length, loff_t offset);
 
-  int mksnap(const char *path, const char *name, const UserPerm& perm);
-  int rmsnap(const char *path, const char *name, const UserPerm& perm);
+  int mksnap(const char *path, const char *name, const UserPerm& perm,
+             mode_t mode=0, const std::map<std::string, std::string> &metadata={});
+  int rmsnap(const char *path, const char *name, const UserPerm& perm, bool check_perms=false);
 
   // Inode permission checking
   int inode_permission(Inode *in, const UserPerm& perms, unsigned want);
@@ -1165,9 +1175,11 @@ private:
 
   /* Flags for VXattr */
   static const unsigned VXATTR_RSTAT = 0x1;
+  static const unsigned VXATTR_DIRSTAT = 0x2;
 
   static const VXattr _dir_vxattrs[];
   static const VXattr _file_vxattrs[];
+  static const VXattr _common_vxattrs[];
 
 
 
@@ -1214,7 +1226,7 @@ private:
   int _unlink(Inode *dir, const char *name, const UserPerm& perm);
   int _rename(Inode *olddir, const char *oname, Inode *ndir, const char *nname, const UserPerm& perm);
   int _mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& perm,
-	     InodeRef *inp = 0);
+	     InodeRef *inp = 0, const std::map<std::string, std::string> &metadata={});
   int _rmdir(Inode *dir, const char *name, const UserPerm& perms);
   int _symlink(Inode *dir, const char *name, const char *target,
 	       const UserPerm& perms, InodeRef *inp = 0);
@@ -1330,6 +1342,9 @@ private:
 
   bool _vxattrcb_mirror_info_exists(Inode *in);
   size_t _vxattrcb_mirror_info(Inode *in, char *val, size_t size);
+
+  size_t _vxattrcb_cluster_fsid(Inode *in, char *val, size_t size);
+  size_t _vxattrcb_client_id(Inode *in, char *val, size_t size);
 
   static const VXattr *_get_vxattrs(Inode *in);
   static const VXattr *_match_vxattr(Inode *in, const char *name);

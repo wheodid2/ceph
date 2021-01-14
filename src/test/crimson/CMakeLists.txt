@@ -5,7 +5,6 @@ add_executable(unittest-crimson-backfill
   ${PROJECT_SOURCE_DIR}/src/crimson/osd/backfill_state.cc
   ${PROJECT_SOURCE_DIR}/src/osd/recovery_types.cc)
 add_ceph_unittest(unittest-crimson-backfill)
-target_compile_definitions(unittest-crimson-backfill PRIVATE -DBACKFILL_UNITTEST)
 target_link_libraries(unittest-crimson-backfill crimson GTest::Main)
 
 add_executable(unittest-seastar-buffer
@@ -45,7 +44,7 @@ add_executable(unittest-seastar-alienstore-thread-pool
 add_ceph_test(unittest-seastar-alienstore-thread-pool
   unittest-seastar-alienstore-thread-pool --memory 256M --smp 1)
 target_link_libraries(unittest-seastar-alienstore-thread-pool
-  crimson-os
+  crimson-alienstore
   crimson)
 
 add_executable(unittest-seastar-config

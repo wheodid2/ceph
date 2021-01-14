@@ -2,19 +2,16 @@ import json
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Optional, Dict, NamedTuple
+from typing import TYPE_CHECKING, Optional, Dict
 
 import orchestrator
-from cephadm.utils import name_to_config_section
+from cephadm.serve import CephadmServe
+from cephadm.utils import name_to_config_section, CEPH_UPGRADE_ORDER
 from orchestrator import OrchestratorError, DaemonDescription
 
 if TYPE_CHECKING:
     from .module import CephadmOrchestrator
 
-
-# ceph daemon types that use the ceph container image.
-# NOTE: listed in upgrade order!
-CEPH_UPGRADE_ORDER = ['mgr', 'mon', 'crash', 'osd', 'mds', 'rgw', 'rbd-mirror']
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +46,7 @@ class UpgradeState:
         }
 
     @classmethod
-    def from_json(cls, data) -> Optional['UpgradeState']:
+    def from_json(cls, data: dict) -> Optional['UpgradeState']:
         if data:
             return cls(**data)
         else:
@@ -57,6 +54,12 @@ class UpgradeState:
 
 
 class CephadmUpgrade:
+    UPGRADE_ERRORS = [
+        'UPGRADE_NO_STANDBY_MGR',
+        'UPGRADE_FAILED_PULL',
+        'UPGRADE_REDEPLOY_DAEMON',
+    ]
+
     def __init__(self, mgr: "CephadmOrchestrator"):
         self.mgr = mgr
 
@@ -87,7 +90,7 @@ class CephadmUpgrade:
                 r.message = 'Upgrade paused'
         return r
 
-    def upgrade_start(self, image, version) -> str:
+    def upgrade_start(self, image: str, version: str) -> str:
         if self.mgr.mode != 'root':
             raise OrchestratorError('upgrade is not supported in %s mode' % (
                 self.mgr.mode))
@@ -186,13 +189,13 @@ class CephadmUpgrade:
         return False
 
     def _clear_upgrade_health_checks(self) -> None:
-        for k in ['UPGRADE_NO_STANDBY_MGR',
-                  'UPGRADE_FAILED_PULL']:
+        for k in self.UPGRADE_ERRORS:
             if k in self.mgr.health_checks:
                 del self.mgr.health_checks[k]
         self.mgr.set_health_checks(self.mgr.health_checks)
 
-    def _fail_upgrade(self, alert_id, alert) -> None:
+    def _fail_upgrade(self, alert_id: str, alert: dict) -> None:
+        assert alert_id in self.UPGRADE_ERRORS
         logger.error('Upgrade: Paused due to %s: %s' % (alert_id,
                                                         alert['summary']))
         if not self.upgrade_state:
@@ -204,7 +207,7 @@ class CephadmUpgrade:
         self.mgr.health_checks[alert_id] = alert
         self.mgr.set_health_checks(self.mgr.health_checks)
 
-    def _update_upgrade_progress(self, progress) -> None:
+    def _update_upgrade_progress(self, progress: float) -> None:
         if not self.upgrade_state:
             assert False, 'No upgrade in progress'
 
@@ -246,7 +249,7 @@ class CephadmUpgrade:
             # need to learn the container hash
             logger.info('Upgrade: First pull of %s' % target_image)
             try:
-                target_id, target_version, repo_digest = self.mgr._get_container_image_info(
+                target_id, target_version, repo_digest = CephadmServe(self.mgr)._get_container_image_info(
                     target_image)
             except OrchestratorError as e:
                 self._fail_upgrade('UPGRADE_FAILED_PULL', {
@@ -291,13 +294,13 @@ class CephadmUpgrade:
                     continue
 
                 # make sure host has latest container image
-                out, err, code = self.mgr._run_cephadm(
+                out, err, code = CephadmServe(self.mgr)._run_cephadm(
                     d.hostname, '', 'inspect-image', [],
                     image=target_image, no_fsid=True, error_ok=True)
                 if code or json.loads(''.join(out)).get('image_id') != target_id:
                     logger.info('Upgrade: Pulling %s on %s' % (target_image,
                                                                d.hostname))
-                    out, err, code = self.mgr._run_cephadm(
+                    out, err, code = CephadmServe(self.mgr)._run_cephadm(
                         d.hostname, '', 'pull', [],
                         image=target_image, no_fsid=True, error_ok=True)
                     if code:
@@ -329,13 +332,23 @@ class CephadmUpgrade:
                     return
                 logger.info('Upgrade: Redeploying %s.%s' %
                             (d.daemon_type, d.daemon_id))
-                self.mgr._daemon_action(
-                    d.daemon_type,
-                    d.daemon_id,
-                    d.hostname,
-                    'redeploy',
-                    image=target_image
-                )
+                try:
+                    self.mgr._daemon_action(
+                        d.daemon_type,
+                        d.daemon_id,
+                        d.hostname,
+                        'redeploy',
+                        image=target_image
+                    )
+                except Exception as e:
+                    self._fail_upgrade('UPGRADE_REDEPLOY_DAEMON', {
+                        'severity': 'warning',
+                        'summary': f'Upgrading daemon {d.name()} on host {d.hostname} failed.',
+                        'count': 1,
+                        'detail': [
+                            f'Upgrade daemon: {d.name()}: {e}'
+                        ],
+                    })
                 return
 
             if need_upgrade_self:

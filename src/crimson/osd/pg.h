@@ -151,7 +151,7 @@ public:
     // Not needed yet -- mainly for scrub scheduling
   }
 
-  void scrub_requested(bool deep, bool repair, bool need_auto = false) final;
+  void scrub_requested(scrub_level_t scrub_level, scrub_type_t scrub_type) final;
 
   uint64_t get_snap_trimq_size() const final {
     return 0;
@@ -363,6 +363,7 @@ public:
 
   bool try_reserve_recovery_space(
     int64_t primary_num_bytes, int64_t local_num_bytes) final {
+    // TODO
     return true;
   }
   void unreserve_recovery_space() final {}
@@ -671,7 +672,7 @@ private:
   friend class PeeringEvent;
   friend class RepRequest;
   friend class BackfillRecovery;
-  friend struct BackfillState::PGFacade;
+  friend struct PGFacade;
 private:
   seastar::future<bool> find_unfound() {
     return seastar::make_ready_future<bool>(true);

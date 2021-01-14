@@ -16,7 +16,6 @@
 #include "common/errno.h"
 
 #include <string>
-#include <stdio.h>
 
 #include "CInode.h"
 #include "CDir.h"
@@ -3729,6 +3728,7 @@ int CInode::encode_inodestat(bufferlist& bl, Session *session,
   }
 
   utime_t snap_btime;
+  std::map<std::string, std::string> snap_metadata;
   SnapRealm *realm = find_snaprealm();
   if (snapid != CEPH_NOSNAP && realm) {
     // add snapshot timestamp vxattr
@@ -3740,6 +3740,7 @@ int CInode::encode_inodestat(bufferlist& bl, Session *session,
       ceph_assert(infomap.size() == 1);
       const SnapInfo *si = infomap.begin()->second;
       snap_btime = si->stamp;
+      snap_metadata = si->metadata;
     }
   }
 
@@ -4000,7 +4001,7 @@ int CInode::encode_inodestat(bufferlist& bl, Session *session,
    * note: encoding matches MClientReply::InodeStat
    */
   if (session->info.has_feature(CEPHFS_FEATURE_REPLY_ENCODING)) {
-    ENCODE_START(4, 1, bl);
+    ENCODE_START(5, 1, bl);
     encode(oi->ino, bl);
     encode(snapid, bl);
     encode(oi->rdev, bl);
@@ -4045,6 +4046,7 @@ int CInode::encode_inodestat(bufferlist& bl, Session *session,
     encode(file_i->export_pin, bl);
     encode(snap_btime, bl);
     encode(file_i->rstat.rsnaps, bl);
+    encode(snap_metadata, bl);
     ENCODE_FINISH(bl);
   }
   else {
@@ -4625,6 +4627,11 @@ void CInode::validate_disk_state(CInode::validated_data *results,
       fetch.getxattr("parent", bt, bt_r);
       in->mdcache->mds->objecter->read(oid, object_locator_t(pool), fetch, CEPH_NOSNAP,
 				       NULL, 0, fin);
+      if (in->mdcache->mds->logger) {
+        in->mdcache->mds->logger->inc(l_mds_openino_backtrace_fetch);
+        in->mdcache->mds->logger->inc(l_mds_scrub_backtrace_fetch);
+      }
+
       using ceph::encode;
       if (!is_internal) {
         ObjectOperation scrub_tag;
@@ -4635,6 +4642,8 @@ void CInode::validate_disk_state(CInode::validated_data *results,
         in->mdcache->mds->objecter->mutate(oid, object_locator_t(pool), scrub_tag, snapc,
 					   ceph::real_clock::now(),
 					   0, NULL);
+        if (in->mdcache->mds->logger)
+          in->mdcache->mds->logger->inc(l_mds_scrub_set_tag);
       }
     }
 
@@ -4735,6 +4744,8 @@ next:
                            false);
         // Flag that we repaired this BT so that it won't go into damagetable
         results->backtrace.repaired = true;
+        if (in->mdcache->mds->logger)
+          in->mdcache->mds->logger->inc(l_mds_scrub_backtrace_repaired);
       }
 
       // If the inode's number was free in the InoTable, fix that
@@ -4756,6 +4767,8 @@ next:
               clog->error() << "inode table repaired for inode: " << in->ino();
 
               inotable->save();
+              if (in->mdcache->mds->logger)
+                in->mdcache->mds->logger->inc(l_mds_scrub_inotable_repaired);
             } else {
               clog->error() << "Cannot repair inotable while other operations"
                 " are in progress";
@@ -4766,8 +4779,12 @@ next:
 
 
       if (in->is_dir()) {
+        if (in->mdcache->mds->logger)
+          in->mdcache->mds->logger->inc(l_mds_scrub_dir_inodes);
 	return validate_directory_data();
       } else {
+        if (in->mdcache->mds->logger)
+          in->mdcache->mds->logger->inc(l_mds_scrub_file_inodes);
 	// TODO: validate on-disk inode for normal files
 	return true;
       }
@@ -4783,9 +4800,13 @@ next:
 	  in->mdcache->num_shadow_inodes++;
 	}
         shadow_in->fetch(get_internal_callback(INODE));
+        if (in->mdcache->mds->logger)
+          in->mdcache->mds->logger->inc(l_mds_scrub_dir_base_inodes);
         return false;
       } else {
 	// TODO: validate on-disk inode for non-base directories
+        if (in->mdcache->mds->logger)
+          in->mdcache->mds->logger->inc(l_mds_scrub_dirfrag_rstats);
 	results->inode.passed = true;
 	return check_dirfrag_rstats();
       }

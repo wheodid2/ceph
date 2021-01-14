@@ -12,6 +12,7 @@
 #include "crimson/osd/shard_services.h"
 
 #include "messages/MOSDPGBackfill.h"
+#include "messages/MOSDPGBackfillRemove.h"
 #include "messages/MOSDPGScan.h"
 #include "osd/recovery_types.h"
 #include "osd/osd_types.h"
@@ -30,6 +31,8 @@ class RecoveryBackend {
   seastar::future<> handle_backfill_finish_ack(
     MOSDPGBackfill& m);
   seastar::future<> handle_backfill(MOSDPGBackfill& m);
+
+  seastar::future<> handle_backfill_remove(MOSDPGBackfillRemove& m);
 
   seastar::future<> handle_scan_get_digest(
     MOSDPGScan& m);
@@ -185,7 +188,7 @@ protected:
   std::map<hobject_t, WaitForObjectRecovery> recovering;
   hobject_t get_temp_recovery_object(
     const hobject_t& target,
-    eversion_t version);
+    eversion_t version) const;
 
   boost::container::flat_set<hobject_t> temp_contents;
 

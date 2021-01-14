@@ -57,6 +57,7 @@
 #include "mon/MonOpRequest.h"
 #include "common/WorkQueue.h"
 
+using namespace TOPNSPC::common;
 
 #define CEPH_MON_PROTOCOL     13 /* cluster internal */
 
@@ -298,7 +299,7 @@ private:
   void scrub_timeout();
   void scrub_finish();
   void scrub_reset();
-  void scrub_update_interval(int secs);
+  void scrub_update_interval(ceph::timespan interval);
 
   Context *scrub_event;       ///< periodic event to trigger scrub (leader)
   Context *scrub_timeout_event;  ///< scrub round timeout (leader)
@@ -869,7 +870,13 @@ public:
             ss << "session dropped for command ";
           }
         }
-        ss << "cmd='" << m->cmd << "': finished";
+        cmdmap_t cmdmap;
+        std::ostringstream ds;
+        string prefix;
+        cmdmap_from_json(m->cmd, &cmdmap, ds);
+        cmd_getval(cmdmap, "prefix", prefix);
+        if (prefix != "config set" && prefix != "config-key set")
+          ss << "cmd='" << m->cmd << "': finished";
 
         mon.audit_clog->info() << ss.str();
         mon.reply_command(op, rc, rs, rdata, version);
@@ -966,8 +973,8 @@ private:
   void count_metadata(const std::string& field, ceph::Formatter *f);
   void count_metadata(const std::string& field, std::map<std::string,int> *out);
   // get_all_versions() gathers version information from daemons for health check
-  void get_all_versions(std::map<string, list<string> > &versions);
-  void get_versions(std::map<string, list<string> > &versions);
+  void get_all_versions(std::map<string, std::list<std::string>> &versions);
+  void get_versions(std::map<string, std::list<std::string>> &versions);
 
   // features
   static CompatSet get_initial_supported_features();

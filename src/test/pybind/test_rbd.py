@@ -2528,6 +2528,27 @@ class TestGroups(object):
         self.group.remove_snap(snap_name)
         eq([], list(self.group.list_snaps()))
 
+    def test_group_snap_flags(self):
+        global snap_name
+        eq([], list(self.group.list_snaps()))
+
+        self.group.create_snap(snap_name, 0)
+        eq([snap_name], [snap['name'] for snap in self.group.list_snaps()])
+        self.group.remove_snap(snap_name)
+
+        self.group.create_snap(snap_name, RBD_SNAP_CREATE_SKIP_QUIESCE)
+        eq([snap_name], [snap['name'] for snap in self.group.list_snaps()])
+        self.group.remove_snap(snap_name)
+
+        self.group.create_snap(snap_name, RBD_SNAP_CREATE_IGNORE_QUIESCE_ERROR)
+        eq([snap_name], [snap['name'] for snap in self.group.list_snaps()])
+        self.group.remove_snap(snap_name)
+
+        assert_raises(InvalidArgument, self.group.create_snap, snap_name,
+                      RBD_SNAP_CREATE_SKIP_QUIESCE |
+                      RBD_SNAP_CREATE_IGNORE_QUIESCE_ERROR)
+        eq([], list(self.group.list_snaps()))
+
     def test_group_snap_list_many(self):
         global snap_name
         eq([], list(self.group.list_snaps()))
@@ -2623,13 +2644,15 @@ class TestMigration(object):
         create_image()
         with Image(ioctx, image_name) as image:
             image_id = image.id()
+            image.create_snap('snap')
 
         source_spec = json.dumps(
             {'type': 'native',
              'pool_id': ioctx.get_pool_id(),
              'pool_namespace': '',
              'image_name': image_name,
-             'image_id': image_id})
+             'image_id': image_id,
+             'snap_name': 'snap'})
         dst_image_name = get_temp_image_name()
         RBD().migration_prepare_import(source_spec, ioctx, dst_image_name,
                                        features=63, order=23, stripe_unit=1<<23,
@@ -2646,6 +2669,12 @@ class TestMigration(object):
 
         RBD().migration_execute(ioctx, dst_image_name)
         RBD().migration_commit(ioctx, dst_image_name)
+
+        with Image(ioctx, image_name) as image:
+            image.remove_snap('snap')
+        with Image(ioctx, dst_image_name) as image:
+            image.remove_snap('snap')
+
         RBD().remove(ioctx, dst_image_name)
         RBD().remove(ioctx, image_name)
 

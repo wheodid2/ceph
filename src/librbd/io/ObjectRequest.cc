@@ -232,7 +232,7 @@ void ObjectReadRequest<I>::read_object() {
   }
   image_locker.unlock();
 
-  ldout(image_ctx->cct, 20) << dendl;
+  ldout(image_ctx->cct, 20) << "snap_id=" << read_snap_id << dendl;
 
   neorados::ReadOp read_op;
   for (auto& extent: *this->m_extents) {
@@ -258,6 +258,9 @@ template <typename I>
 void ObjectReadRequest<I>::handle_read_object(int r) {
   I *image_ctx = this->m_ictx;
   ldout(image_ctx->cct, 20) << "r=" << r << dendl;
+  if (m_version != nullptr) {
+    ldout(image_ctx->cct, 20) << "version=" << *m_version << dendl;
+  }
 
   if (r == -ENOENT) {
     read_parent();
@@ -485,14 +488,16 @@ void AbstractObjectWriteRequest<I>::write_object() {
 
   neorados::WriteOp write_op;
   if (m_copyup_enabled) {
-    ldout(image_ctx->cct, 20) << "guarding write" << dendl;
     if (m_guarding_migration_write) {
+      auto snap_seq = (this->m_io_context->write_snap_context() ?
+          this->m_io_context->write_snap_context()->first : 0);
+      ldout(image_ctx->cct, 20) << "guarding write: snap_seq=" << snap_seq
+                                << dendl;
+
       cls_client::assert_snapc_seq(
-        &write_op,
-        (this->m_io_context->write_snap_context() ?
-          this->m_io_context->write_snap_context()->first : 0),
-        cls::rbd::ASSERT_SNAPC_SEQ_LE_SNAPSET_SEQ);
+        &write_op, snap_seq, cls::rbd::ASSERT_SNAPC_SEQ_LE_SNAPSET_SEQ);
     } else {
+      ldout(image_ctx->cct, 20) << "guarding write" << dendl;
       write_op.assert_exists();
     }
   }
@@ -642,12 +647,17 @@ void AbstractObjectWriteRequest<I>::handle_post_write_object_map_update(int r) {
 }
 
 template <typename I>
-void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
+void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
   if ((m_write_flags & OBJECT_WRITE_FLAG_CREATE_EXCLUSIVE) != 0) {
     wr->create(true);
   } else if (m_assert_version.has_value()) {
     wr->assert_version(m_assert_version.value());
   }
+  AbstractObjectWriteRequest<I>::add_write_hint(wr);
+}
+
+template <typename I>
+void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
   if (this->m_full_object) {
     wr->write_full(bufferlist{m_write_data});
   } else {
@@ -844,7 +854,8 @@ void ObjectListSnapsRequest<I>::handle_list_snaps(int r) {
                    << "clone_end_snap_id=" << clone_end_snap_id << ", "
                    << "diff=" << diff << ", "
                    << "end_size=" << end_size << ", "
-                   << "exists=" << exists << dendl;
+                   << "exists=" << exists << ", "
+                   << "whole_object=" << read_whole_object << dendl;
     if (end_snap_id <= first_snap_id) {
       // don't include deltas from the starting snapshots, but we iterate over
       // it to track its existence and size

@@ -1,4 +1,4 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
 // vim: ts=8 sw=2 smarttab
 
 #pragma once
@@ -14,14 +14,14 @@ namespace crimson::os::seastore::onode {
 #ifdef UNIT_TESTS_BUILT
 enum class InsertType { BEGIN, LAST, MID };
 struct split_expectation_t {
-  uint8_t split_stage;
-  uint8_t insert_stage;
+  match_stage_t split_stage;
+  match_stage_t insert_stage;
   bool is_insert_left;
   InsertType insert_type;
 };
 struct last_split_info_t {
   search_position_t split_pos;
-  uint8_t insert_stage;
+  match_stage_t insert_stage;
   bool is_insert_left;
   InsertType insert_type;
   bool match(const split_expectation_t& e) const {

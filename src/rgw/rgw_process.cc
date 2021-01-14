@@ -181,6 +181,7 @@ int process_request(rgw::sal::RGWRadosStore* const store,
                     OpsLogSocket* const olog,
                     optional_yield yield,
 		    rgw::dmclock::Scheduler *scheduler,
+                    string* user,
                     int* http_ret)
 {
   int ret = client_io->init(g_ceph_context);
@@ -225,6 +226,7 @@ int process_request(rgw::sal::RGWRadosStore* const store,
                                                frontend_prefix,
                                                client_io, &mgr, &init_error);
   rgw::dmclock::SchedulerCompleter c;
+
   if (init_error != 0) {
     abort_early(s, nullptr, init_error, nullptr, yield);
     goto done;
@@ -337,6 +339,11 @@ done:
     *http_ret = s->err.http_ret;
   }
   int op_ret = 0;
+
+  if (user && !rgw::sal::RGWUser::empty(s->user.get())) {
+    *user = s->user->get_id().to_str();
+  }
+
   if (op) {
     op_ret = op->get_ret();
     ldpp_dout(op, 2) << "op status=" << op_ret << dendl;

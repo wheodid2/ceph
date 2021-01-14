@@ -1,3 +1,20 @@
+build/ops:
+  - "**/CMakeLists.txt"
+  - admin/**
+  - ceph.spec.in
+  - cmake/**
+  - debian/**
+  - do_cmake.sh
+  - do_freebsd.sh
+  - install-deps.sh
+  - keys/**
+  - make-debs.sh
+  - make-dist
+  - make-srpm.sh
+  - run-make-check.sh
+  - win32_build.sh
+  - win32_deps_build.sh
+
 documentation:
   - AUTHORS
   - CONTRIBUTING.rst
@@ -36,6 +53,7 @@ pybind:
   - src/pybind/rbd/**
   - src/pybind/rgw/**
   - src/pybind/**
+  - src/python-common/**
 
 common:
   - src/common/**
@@ -43,9 +61,24 @@ common:
   - src/log/**
 
 cephadm:
+  - doc/cephadm/**
+  - doc/dev/cephadm/**
+  - doc/man/8/cephadm.rst
+  - qa/suites/rados/cephadm/**
+  - qa/tasks/cephadm.py
+  - qa/tasks/mgr/test_cephadm_orchestrator.py
+  - qa/workunits/cephadm/**
   - src/cephadm/**
   - src/pybind/mgr/cephadm/**
-  - qa/suites/rados/cephadm/**
+  - src/python-common/**
+    
+orchestrator:
+  - doc/mgr/orchestrator.rst
+  - doc/mgr/orchestrator_modules.rst
+  - src/pybind/mgr/orchestrator/**
+  - src/pybind/mgr/rook/**
+  - src/pybind/mgr/test_orchestrator/**
+  - qa/tasks/mgr/test_orchestrator_cli.py
 
 bluestore:
   - src/os/bluestore/**
@@ -129,6 +162,8 @@ cephfs:
   - src/include/fs_types.h
   - src/libcephfs.cc
   - src/mds/**
+  - src/mon/MDSMonitor.*
+  - src/mon/FSCommands.*
   - src/pybind/ceph_volume_client.py
   - src/pybind/cephfs/**
   - src/pybind/mgr/mds_autoscaler/**
@@ -180,6 +215,8 @@ rgw:
 ceph-volume:
   - src/ceph-volume/**
   - doc/ceph-volume/**
+  - src/python-common/ceph/deployment/drive_group.py
+  - src/python-common/ceph/deployment/drive_selection/**
 
 tests:
   - qa/tasks/**

@@ -13,9 +13,7 @@
  */
 
 #include <errno.h>
-#include <fstream>
-#include <iostream>
-#include <sstream>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <map>
@@ -190,7 +188,7 @@ MDCache::MDCache(MDSRank *m, PurgeQueue &purge_queue_) :
       }
       since = now-upkeep_last_release;
       auto release_interval = clock::duration(g_conf().get_val<std::chrono::seconds>("mds_cache_release_free_interval"));
-      if (since >= release_interval) {
+      if (since >= release_interval*.90) {
         /* XXX not necessary once MDCache uses PriorityCache */
         dout(10) << "releasing free memory" << dendl;
         ceph_heap_release_free_memory();
@@ -10882,7 +10880,17 @@ int MDCache::send_dir_updates(CDir *dir, bool bcast)
 
   set<mds_rank_t> who;
   if (bcast) {
-    mds->get_mds_map()->get_active_mds_set(who);
+    set<mds_rank_t> mds_set;
+    mds->get_mds_map()->get_active_mds_set(mds_set);
+
+    set<mds_rank_t> replica_set;
+    for (const auto &p : dir->get_replicas()) {
+      replica_set.insert(p.first);
+    }
+
+    std::set_difference(mds_set.begin(), mds_set.end(),
+                        replica_set.begin(), replica_set.end(),
+                        std::inserter(who, who.end()));
   } else {
     for (const auto &p : dir->get_replicas()) {
       who.insert(p.first);
@@ -10894,6 +10902,11 @@ int MDCache::send_dir_updates(CDir *dir, bool bcast)
   filepath path;
   dir->inode->make_path(path);
 
+  std::set<int32_t> dir_rep_set;
+  for (const auto &r : dir->dir_rep_by) {
+    dir_rep_set.insert(r);
+  }
+
   mds_rank_t whoami = mds->get_nodeid();
   for (set<mds_rank_t>::iterator it = who.begin();
        it != who.end();
@@ -10902,11 +10915,7 @@ int MDCache::send_dir_updates(CDir *dir, bool bcast)
     //if (*it == except) continue;
     dout(7) << "sending dir_update on " << *dir << " to " << *it << dendl;
 
-    std::set<int32_t> s;
-    for (const auto &r : dir->dir_rep_by) {
-      s.insert(r);
-    }
-    mds->send_message_mds(make_message<MDirUpdate>(mds->get_nodeid(), dir->dirfrag(), dir->dir_rep, s, path, bcast), *it);
+    mds->send_message_mds(make_message<MDirUpdate>(mds->get_nodeid(), dir->dirfrag(), dir->dir_rep, dir_rep_set, path, bcast), *it);
   }
 
   return 0;

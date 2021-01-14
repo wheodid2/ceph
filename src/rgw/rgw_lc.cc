@@ -242,7 +242,7 @@ void *RGWLC::LCWorker::entry() {
 void RGWLC::initialize(CephContext *_cct, rgw::sal::RGWRadosStore *_store) {
   cct = _cct;
   store = _store;
-  sal_lc = std::move(store->get_lifecycle());
+  sal_lc = store->get_lifecycle();
   max_objs = cct->_conf->rgw_lc_max_objs;
   if (max_objs > HASH_PRIME)
     max_objs = HASH_PRIME;
@@ -824,7 +824,6 @@ int RGWLC::handle_multipart_expiration(rgw::sal::RGWBucket* target,
 				       LCWorker* worker, time_t stop_at, bool once)
 {
   MultipartMetaFilter mp_filter;
-  vector<rgw_bucket_dir_entry> objs;
   int ret;
   rgw::sal::RGWBucket::ListParams params;
   rgw::sal::RGWBucket::ListResults results;
@@ -887,7 +886,7 @@ int RGWLC::handle_multipart_expiration(rgw::sal::RGWBucket* target,
     }
     params.prefix = prefix_iter->first;
     do {
-      objs.clear();
+      results.objs.clear();
       ret = target->list(params, 1000, results, null_yield);
       if (ret < 0) {
           if (ret == (-ENOENT))
@@ -896,7 +895,7 @@ int RGWLC::handle_multipart_expiration(rgw::sal::RGWBucket* target,
           return ret;
       }
 
-      for (auto obj_iter = objs.begin(); obj_iter != objs.end(); ++obj_iter) {
+      for (auto obj_iter = results.objs.begin(); obj_iter != results.objs.end(); ++obj_iter) {
 	std::tuple<lc_op, rgw_bucket_dir_entry> t1 =
 	  {prefix_iter->second, *obj_iter};
 	worker->workpool->enqueue(WorkItem{t1});
@@ -1644,7 +1643,7 @@ int RGWLC::list_lc_progress(string& marker, uint32_t max_entries,
 
 static inline vector<int> random_sequence(uint32_t n)
 {
-  vector<int> v(n-1, 0);
+  vector<int> v(n, 0);
   std::generate(v.begin(), v.end(),
     [ix = 0]() mutable {
       return ix++;
@@ -2097,7 +2096,7 @@ int fix_lc_shard_entry(rgw::sal::RGWRadosStore* store,
 
     ret = guard_lc_modify(
       store, sal_lc, bucket_info.bucket, cookie,
-      [&sal_lc, &lc_oid](rgw::sal::Lifecycle* slc,
+      [&lc_oid](rgw::sal::Lifecycle* slc,
 			      const string& oid,
 			      const rgw::sal::Lifecycle::LCEntry& entry) {
 	return slc->set_entry(lc_oid, entry);

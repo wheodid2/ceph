@@ -1,4 +1,4 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
 // vim: ts=8 sw=2 smarttab
 
 #pragma once
@@ -13,13 +13,15 @@
 
 namespace crimson::os::seastore::onode {
 
-using match_stage_t = uint8_t;
-constexpr match_stage_t STAGE_LEFT = 2u;   // shard/pool/crush
-constexpr match_stage_t STAGE_STRING = 1u; // nspace/oid
-constexpr match_stage_t STAGE_RIGHT = 0u;  // snap/gen
+using match_stage_t = int8_t;
+constexpr match_stage_t STAGE_LEFT = 2;   // shard/pool/crush
+constexpr match_stage_t STAGE_STRING = 1; // nspace/oid
+constexpr match_stage_t STAGE_RIGHT = 0;  // snap/gen
 constexpr auto STAGE_TOP = STAGE_LEFT;
 constexpr auto STAGE_BOTTOM = STAGE_RIGHT;
-
+constexpr bool is_valid_stage(match_stage_t stage) {
+  return std::clamp(stage, STAGE_BOTTOM, STAGE_TOP) == stage;
+}
 // TODO: replace by
 // using match_history_t = int8_t;
 //     left_m, str_m, right_m
@@ -34,7 +36,7 @@ constexpr auto STAGE_BOTTOM = STAGE_RIGHT;
 struct MatchHistory {
   template <match_stage_t STAGE>
   const std::optional<MatchKindCMP>& get() const {
-    static_assert(STAGE >= STAGE_BOTTOM && STAGE <= STAGE_TOP);
+    static_assert(is_valid_stage(STAGE));
     if constexpr (STAGE == STAGE_RIGHT) {
       return right_match;
     } else if (STAGE == STAGE_STRING) {
@@ -46,7 +48,7 @@ struct MatchHistory {
 
   const std::optional<MatchKindCMP>&
   get_by_stage(match_stage_t stage) const {
-    assert(stage >= STAGE_BOTTOM && stage <= STAGE_TOP);
+    assert(is_valid_stage(stage));
     if (stage == STAGE_RIGHT) {
       return right_match;
     } else if (stage == STAGE_STRING) {
@@ -61,7 +63,7 @@ struct MatchHistory {
 
   template <match_stage_t STAGE>
   void set(MatchKindCMP match) {
-    static_assert(STAGE >= STAGE_BOTTOM && STAGE <= STAGE_TOP);
+    static_assert(is_valid_stage(STAGE));
     if constexpr (STAGE < STAGE_TOP) {
       assert(*get<STAGE + 1>() == MatchKindCMP::EQ);
     }
@@ -118,7 +120,7 @@ struct _check_GT_t<STAGE_RIGHT> {
 };
 template <match_stage_t STAGE>
 const bool MatchHistory::is_GT() const {
-  static_assert(STAGE >= STAGE_BOTTOM && STAGE <= STAGE_TOP);
+  static_assert(is_valid_stage(STAGE));
   if constexpr (STAGE < STAGE_TOP) {
     assert(get<STAGE + 1>() == MatchKindCMP::EQ);
   }
@@ -127,7 +129,7 @@ const bool MatchHistory::is_GT() const {
 
 template <match_stage_t STAGE>
 struct staged_position_t {
-  static_assert(STAGE > STAGE_BOTTOM && STAGE <= STAGE_TOP);
+  static_assert(is_valid_stage(STAGE));
   using me_t = staged_position_t<STAGE>;
   using nxt_t = staged_position_t<STAGE - 1>;
   bool is_end() const {
@@ -138,7 +140,7 @@ struct staged_position_t {
       return false;
     }
   }
-  size_t& index_by_stage(match_stage_t stage) {
+  index_t& index_by_stage(match_stage_t stage) {
     assert(stage <= STAGE);
     if (STAGE == stage) {
       return index;
@@ -176,12 +178,24 @@ struct staged_position_t {
     return *this;
   }
 
+  void encode(ceph::bufferlist& encoded) const {
+    ceph::encode(index, encoded);
+    nxt.encode(encoded);
+  }
+
+  static me_t decode(ceph::bufferlist::const_iterator& delta) {
+    me_t ret;
+    ceph::decode(ret.index, delta);
+    ret.nxt = nxt_t::decode(delta);
+    return ret;
+  }
+
   static me_t begin() { return {0u, nxt_t::begin()}; }
   static me_t end() {
     return {INDEX_END, nxt_t::end()};
   }
 
-  size_t index;
+  index_t index;
   nxt_t nxt;
 };
 template <match_stage_t STAGE>
@@ -208,7 +222,7 @@ struct staged_position_t<STAGE_BOTTOM> {
       return false;
     }
   }
-  size_t& index_by_stage(match_stage_t stage) {
+  index_t& index_by_stage(match_stage_t stage) {
     assert(stage == STAGE_BOTTOM);
     return index;
   }
@@ -239,10 +253,20 @@ struct staged_position_t<STAGE_BOTTOM> {
     return *this;
   }
 
+  void encode(ceph::bufferlist& encoded) const {
+    ceph::encode(index, encoded);
+  }
+
+  static me_t decode(ceph::bufferlist::const_iterator& delta) {
+    me_t ret;
+    ceph::decode(ret.index, delta);
+    return ret;
+  }
+
   static me_t begin() { return {0u}; }
   static me_t end() { return {INDEX_END}; }
 
-  size_t index;
+  index_t index;
 };
 template <>
 inline std::ostream& operator<<(std::ostream& os, const staged_position_t<STAGE_BOTTOM>& pos) {
@@ -348,7 +372,7 @@ struct staged_result_t {
   }
   template <typename T = me_t>
   static std::enable_if_t<STAGE != STAGE_BOTTOM, T> from_nxt(
-      size_t index, const staged_result_t<NODE_TYPE, STAGE - 1>& nxt_stage_result) {
+      index_t index, const staged_result_t<NODE_TYPE, STAGE - 1>& nxt_stage_result) {
     return {{index, nxt_stage_result.position},
             nxt_stage_result.p_value,
             nxt_stage_result.mstat};

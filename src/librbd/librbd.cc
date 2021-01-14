@@ -1329,7 +1329,19 @@ namespace librbd {
                group_ioctx.get_pool_name().c_str(),
 	       group_ioctx.get_id(), group_name, snap_name);
     int r = librbd::api::Group<>::snap_create(group_ioctx, group_name,
-                                              snap_name);
+                                              snap_name, 0);
+    tracepoint(librbd, group_snap_create_exit, r);
+    return r;
+  }
+
+  int RBD::group_snap_create2(IoCtx& group_ioctx, const char *group_name,
+                              const char *snap_name, uint32_t flags) {
+    TracepointProvider::initialize<tracepoint_traits>(get_cct(group_ioctx));
+    tracepoint(librbd, group_snap_create_enter,
+               group_ioctx.get_pool_name().c_str(),
+	       group_ioctx.get_id(), group_name, snap_name);
+    int r = librbd::api::Group<>::snap_create(group_ioctx, group_name,
+                                              snap_name, flags);
     tracepoint(librbd, group_snap_create_exit, r);
     return r;
   }
@@ -2031,6 +2043,24 @@ namespace librbd {
                                             prog_ctx);
     tracepoint(librbd, deep_copy_exit, r);
     return r;
+  }
+
+  int Image::encryption_format(encryption_format_t format,
+                               encryption_options_t opts,
+                               size_t opts_size)
+  {
+    ImageCtx *ictx = (ImageCtx *)ctx;
+    return librbd::api::Image<>::encryption_format(
+            ictx, format, opts, opts_size, false);
+  }
+
+  int Image::encryption_load(encryption_format_t format,
+                             encryption_options_t opts,
+                             size_t opts_size)
+  {
+    ImageCtx *ictx = (ImageCtx *)ctx;
+    return librbd::api::Image<>::encryption_load(
+            ictx, format, opts, opts_size, false);
   }
 
   int Image::flatten()
@@ -4300,6 +4330,26 @@ extern "C" int rbd_deep_copy_with_progress(rbd_image_t image,
                                             prog_ctx);
   tracepoint(librbd, deep_copy_exit, ret);
   return ret;
+}
+
+extern "C" int rbd_encryption_format(rbd_image_t image,
+                                     rbd_encryption_format_t format,
+                                     rbd_encryption_options_t opts,
+                                     size_t opts_size)
+{
+  librbd::ImageCtx *ictx = (librbd::ImageCtx *)image;
+  return librbd::api::Image<>::encryption_format(
+          ictx, format, opts, opts_size, true);
+}
+
+extern "C" int rbd_encryption_load(rbd_image_t image,
+                                   rbd_encryption_format_t format,
+                                   rbd_encryption_options_t opts,
+                                   size_t opts_size)
+{
+  librbd::ImageCtx *ictx = (librbd::ImageCtx *)image;
+  return librbd::api::Image<>::encryption_load(
+          ictx, format, opts, opts_size, true);
 }
 
 extern "C" int rbd_flatten(rbd_image_t image)
@@ -6942,8 +6992,28 @@ extern "C" int rbd_group_snap_create(rados_ioctx_t group_p,
              group_ioctx.get_pool_name().c_str(),
 	     group_ioctx.get_id(), group_name, snap_name);
 
-  int r = librbd::api::Group<>::snap_create(group_ioctx, group_name, snap_name);
+  int r = librbd::api::Group<>::snap_create(group_ioctx, group_name,
+                                            snap_name, 0);
+  tracepoint(librbd, group_snap_create_exit, r);
 
+  return r;
+}
+
+extern "C" int rbd_group_snap_create2(rados_ioctx_t group_p,
+                                      const char *group_name,
+                                      const char *snap_name,
+                                      uint32_t flags)
+{
+  librados::IoCtx group_ioctx;
+  librados::IoCtx::from_rados_ioctx_t(group_p, group_ioctx);
+
+  TracepointProvider::initialize<tracepoint_traits>(get_cct(group_ioctx));
+  tracepoint(librbd, group_snap_create_enter,
+             group_ioctx.get_pool_name().c_str(),
+	     group_ioctx.get_id(), group_name, snap_name);
+
+  int r = librbd::api::Group<>::snap_create(group_ioctx, group_name, snap_name,
+                                            flags);
   tracepoint(librbd, group_snap_create_exit, r);
 
   return r;

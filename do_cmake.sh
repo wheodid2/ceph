@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -ex
 
-git submodule update --init --recursive
+if [ -d .git ]; then
+    git submodule update --init --recursive
+fi
 
 : ${BUILD_DIR:=build}
 : ${CEPH_GIT_DIR:=..}
@@ -51,6 +53,11 @@ fi
 if type ccache > /dev/null 2>&1 ; then
     echo "enabling ccache"
     ARGS+=" -DWITH_CCACHE=ON"
+fi
+
+if [[ ! "$ARGS $@" =~ "-DBOOST_J" ]] ; then
+    ncpu=$(getconf _NPROCESSORS_ONLN 2>&1)
+    [ -n "$ncpu" -a "$ncpu" -gt 1 ] && ARGS+=" -DBOOST_J=$(expr $ncpu / 2)"
 fi
 
 mkdir $BUILD_DIR

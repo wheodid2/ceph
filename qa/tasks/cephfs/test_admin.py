@@ -5,7 +5,7 @@ from os.path import join as os_path_join
 from teuthology.orchestra.run import CommandFailedError, Raw
 
 from tasks.cephfs.cephfs_test_case import CephFSTestCase
-from tasks.cephfs.filesystem import FileLayout
+from tasks.cephfs.filesystem import FileLayout, FSMissing
 from tasks.cephfs.fuse_mount import FuseMount
 from tasks.cephfs.caps_helper import CapsHelper
 
@@ -193,6 +193,10 @@ class TestAdminCommands(CephFSTestCase):
             self._check_pool_application_metadata_key_value(
                 pool_names[i], 'cephfs', keys[i], fs_name)
 
+class TestRequiredClientFeatures(CephFSTestCase):
+    CLIENTS_REQUIRED = 0
+    MDSS_REQUIRED = 1
+
     def test_required_client_features(self):
         """
         That `ceph fs required_client_features` command functions.
@@ -209,7 +213,7 @@ class TestAdminCommands(CephFSTestCase):
         self.assertGreater(len(features), 0);
 
         for f in features:
-            self.fs.mon_manager.raw_cluster_cmd('fs', 'required_client_features', self.fs.name, 'rm', str(f['index']))
+            self.fs.required_client_features('rm', str(f['index']))
 
         for f in features:
             index = f['index']
@@ -219,14 +223,46 @@ class TestAdminCommands(CephFSTestCase):
 
             if index % 3 == 0:
                 continue;
-            self.fs.mon_manager.raw_cluster_cmd('fs', 'required_client_features', self.fs.name, 'add', feature)
+            self.fs.required_client_features('add', feature)
             self.assertTrue(is_required(index))
 
             if index % 2 == 0:
                 continue;
-            self.fs.mon_manager.raw_cluster_cmd('fs', 'required_client_features', self.fs.name, 'rm', feature)
+            self.fs.required_client_features('rm', feature)
             self.assertFalse(is_required(index))
 
+    def test_required_client_feature_add_reserved(self):
+        """
+        That `ceph fs required_client_features X add reserved` fails.
+        """
+
+        p = self.fs.required_client_features('add', 'reserved', check_status=False, stderr=StringIO())
+        self.assertIn('Invalid feature name', p.stderr.getvalue())
+
+    def test_required_client_feature_rm_reserved(self):
+        """
+        That `ceph fs required_client_features X rm reserved` fails.
+        """
+
+        p = self.fs.required_client_features('rm', 'reserved', check_status=False, stderr=StringIO())
+        self.assertIn('Invalid feature name', p.stderr.getvalue())
+
+    def test_required_client_feature_add_reserved_bit(self):
+        """
+        That `ceph fs required_client_features X add <reserved_bit>` passes.
+        """
+
+        p = self.fs.required_client_features('add', '1', stderr=StringIO())
+        self.assertIn("added feature 'reserved' to required_client_features", p.stderr.getvalue())
+
+    def test_required_client_feature_rm_reserved_bit(self):
+        """
+        That `ceph fs required_client_features X rm <reserved_bit>` passes.
+        """
+
+        self.fs.required_client_features('add', '1')
+        p = self.fs.required_client_features('rm', '1', stderr=StringIO())
+        self.assertIn("removed feature 'reserved' from required_client_features", p.stderr.getvalue())
 
 class TestConfigCommands(CephFSTestCase):
     """
@@ -540,3 +576,29 @@ class TestSubCmdFsAuthorize(CapsHelper):
         mounts = (self.mount_a, )
 
         return filepaths, filedata, mounts, keyring
+
+class TestAdminCommandIdempotency(CephFSTestCase):
+    """
+    Tests for administration command idempotency.
+    """
+
+    CLIENTS_REQUIRED = 0
+    MDSS_REQUIRED = 1
+
+    def test_rm_idempotency(self):
+        """
+        That a removing a fs twice is idempotent.
+        """
+
+        data_pools = self.fs.get_data_pool_names(refresh=True)
+        self.fs.fail()
+        self.fs.rm()
+        try:
+            self.fs.get_mds_map()
+        except FSMissing:
+            pass
+        else:
+            self.fail("get_mds_map should raise")
+        p = self.fs.rm()
+        self.assertIn("does not exist", p.stderr.getvalue())
+        self.fs.remove_pools(data_pools)

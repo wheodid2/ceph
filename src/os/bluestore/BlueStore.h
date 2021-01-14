@@ -1230,20 +1230,7 @@ public:
                                    PerfCounters *logger);
     virtual void _add(Onode* o, int level) = 0;
     virtual void _rm(Onode* o) = 0;
-
-    void pin(Onode* o, std::function<bool ()> validator) {
-      std::lock_guard l(lock);
-      if (validator()) {
-        _pin(o);
-      }
-    }
-
-    void unpin(Onode* o, std::function<bool()> validator) {
-      std::lock_guard l(lock);
-      if (validator()) {
-        _unpin(o);
-      }
-    }
+    virtual void _unpin_and_rm(Onode* o) = 0;
 
     virtual void move_pinned(OnodeCacheShard *to, Onode *o) = 0;
     virtual void add_stats(uint64_t *onodes, uint64_t *pinned_onodes) = 0;
@@ -1305,7 +1292,7 @@ public:
     mempool::bluestore_cache_meta::unordered_map<ghobject_t,OnodeRef> onode_map;
 
     friend struct Collection; // for split_cache()
-
+    friend struct Onode; // for put()
     friend struct LruOnodeCacheShard;
     void _remove(const ghobject_t& oid);
   public:
@@ -1326,7 +1313,7 @@ public:
     void dump(CephContext *cct);
 
     /// return true if f true for any item
-    bool map_any(std::function<bool(OnodeRef)> f);
+    bool map_any(std::function<bool(Onode*)> f);
   };
 
   class OpSequencer;
@@ -1671,8 +1658,8 @@ public:
       modified_objects.insert(o);
     }
     void note_removed_object(OnodeRef& o) {
-      onodes.erase(o);
       modified_objects.insert(o);
+      onodes.erase(o);
     }
 
     void zoned_note_new_object(OnodeRef &o) {
@@ -1866,6 +1853,8 @@ public:
     DeferredBatch *deferred_running = nullptr;
     DeferredBatch *deferred_pending = nullptr;
 
+    ceph::mutex deferred_lock = ceph::make_mutex("BlueStore::OpSequencer::deferred_lock");
+
     BlueStore *store;
     coll_t cid;
 
@@ -1951,7 +1940,7 @@ public:
 	qcond.wait(l);
 	--kv_submitted_waiters;
       }
-    }
+      }
 
     bool flush_commit(Context *c) {
       std::lock_guard l(qlock);
@@ -2095,7 +2084,7 @@ private:
       ceph::make_mutex("BlueStore::atomic_alloc_and_submit_lock");
   std::atomic<uint64_t> deferred_seq = {0};
   deferred_osr_queue_t deferred_queue; ///< osr's with deferred io pending
-  int deferred_queue_size = 0;         ///< num txc's queued across all osrs
+  std::atomic_int deferred_queue_size = {0};         ///< num txc's queued across all osrs
   std::atomic_int deferred_aggressive = {0}; ///< aggressive wakeup of kv thread
   Finisher  finisher;
   utime_t  deferred_last_submitted = utime_t();
@@ -2150,7 +2139,12 @@ private:
 		std::numeric_limits<decltype(min_alloc_size)>::digits,
 		"not enough bits for min_alloc_size");
 
-  bool per_pool_omap = false;
+  enum {
+    // Please preserve the order since it's DB persistent
+    OMAP_BULK = 0,
+    OMAP_PER_POOL = 1,
+    OMAP_PER_PG = 2,
+    } per_pool_omap = OMAP_BULK;
 
   ///< maximum allocation unit (power of 2)
   std::atomic<uint64_t> max_alloc_size = {0};
@@ -3055,7 +3049,7 @@ private:
   std::set<std::string> failed_compressors;
   std::string spillover_alert;
   std::string legacy_statfs_alert;
-  std::string no_per_pool_omap_alert;
+  std::string no_per_pg_omap_alert;
   std::string disk_size_mismatch_alert;
   std::string spurious_read_errors_alert;
 
@@ -3085,7 +3079,7 @@ private:
   }
 
   void _check_legacy_statfs_alert();
-  void _check_no_per_pool_omap_alert();
+  void _check_no_per_pg_omap_alert();
   void _set_disk_size_mismatch_alert(const std::string& s) {
     std::lock_guard l(qlock);
     disk_size_mismatch_alert = s;
@@ -3621,7 +3615,7 @@ public:
     }
   };
 public:
-  void fix_per_pool_omap(KeyValueDB *db);
+  void fix_per_pool_omap(KeyValueDB *db, int);
   bool remove_key(KeyValueDB *db, const std::string& prefix, const std::string& key);
   bool fix_shared_blob(KeyValueDB *db,
 		         uint64_t sbid,

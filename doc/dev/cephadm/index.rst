@@ -8,4 +8,7 @@ CEPHADM Developer Documentation
    :maxdepth: 1
 
 
+   developing-cephadm
    host-maintenance
+   compliance-check
+   cephadm-exporter

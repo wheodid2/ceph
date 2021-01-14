@@ -166,6 +166,9 @@
 /* Define if you want to use LTTng */
 #cmakedefine WITH_LTTNG
 
+/* Define if you want to use Jaeger */
+#cmakedefine HAVE_JAEGER
+
 /* Define if you want to use EVENTTRACE */
 #cmakedefine WITH_EVENTTRACE
 
@@ -342,6 +345,9 @@
 /* Defined if libedkafka is available for rgw kafka push endpoint */
 #cmakedefine WITH_RADOSGW_KAFKA_ENDPOINT
 
+/* Defined if lua packages can be installed by radosgw */
+#cmakedefine WITH_RADOSGW_LUA_PACKAGES
+
 /* Defined if std::map::merge() is supported */
 #cmakedefine HAVE_STDLIB_MAP_SPLICING
 
@@ -362,6 +368,9 @@
 
 /* Define if libcryptsetup version < 2.0.5 */
 #cmakedefine LIBCRYPTSETUP_LEGACY_DATA_ALIGNMENT
+
+/* Define if libcryptsetup can be used (linux only) */
+#cmakedefine HAVE_LIBCRYPTSETUP
 
 /* Shared library extension, such as .so, .dll or .dylib */
 #cmakedefine CMAKE_SHARED_LIBRARY_SUFFIX "@CMAKE_SHARED_LIBRARY_SUFFIX@"

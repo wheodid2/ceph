@@ -56,6 +56,8 @@ set(unittest_librbd_srcs
   crypto/test_mock_BlockCrypto.cc
   crypto/test_mock_CryptoContextPool.cc
   crypto/test_mock_CryptoObjectDispatch.cc
+  crypto/test_mock_FormatRequest.cc
+  crypto/test_mock_LoadRequest.cc
   crypto/openssl/test_DataCryptor.cc
   deep_copy/test_mock_ImageCopyRequest.cc
   deep_copy/test_mock_MetadataCopyRequest.cc
@@ -103,6 +105,7 @@ set(unittest_librbd_srcs
   mirror/snapshot/test_mock_UnlinkPeerRequest.cc
   mirror/snapshot/test_mock_Utils.cc
   mirror/test_mock_DisableRequest.cc
+  object_map/test_mock_DiffRequest.cc
   object_map/test_mock_InvalidateRequest.cc
   object_map/test_mock_LockRequest.cc
   object_map/test_mock_RefreshRequest.cc
@@ -127,12 +130,21 @@ set(unittest_librbd_srcs
   watcher/test_mock_RewatchRequest.cc
   )
 
-if(WITH_RBD_RWL)
+if(WITH_RBD_RWL OR WITH_RBD_SSD_CACHE)
    set(unittest_librbd_srcs
      ${unittest_librbd_srcs}
-     cache/pwl/test_mock_ReplicatedWriteLog.cc
      cache/pwl/test_WriteLogMap.cc)
-endif(WITH_RBD_RWL)
+   if(WITH_RBD_RWL)
+     set(unittest_librbd_srcs
+       ${unittest_librbd_srcs}
+       cache/pwl/test_mock_ReplicatedWriteLog.cc)
+   endif()
+   if(WITH_RBD_SSD_CACHE)
+     set(unittest_librbd_srcs
+       ${unittest_librbd_srcs}
+       cache/pwl/test_mock_SSDWriteLog.cc)
+   endif()
+endif()
 
 if(LINUX AND HAVE_LIBCRYPTSETUP)
   list(APPEND unittest_librbd_srcs
@@ -167,6 +179,11 @@ target_link_libraries(unittest_librbd
   global
   OpenSSL::SSL
   ${UNITTEST_LIBS})
+
+if(WITH_RBD_RWL OR WITH_RBD_SSD_CACHE)
+  target_link_libraries(unittest_librbd
+    librbd_plugin_pwl_cache)
+endif()
 
 add_executable(ceph_test_librbd
   test_main.cc
