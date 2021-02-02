@@ -1,6 +1,9 @@
+import errno
 import logging
 import os
 from typing import List, Any, Tuple, Dict
+
+from mgr_module import HandleCommandResult
 
 from orchestrator import DaemonDescription
 from ceph.deployment.service_spec import AlertManagerSpec
@@ -24,6 +27,7 @@ class GrafanaService(CephadmService):
 
         prom_services = []  # type: List[str]
         for dd in self.mgr.cache.get_daemons_by_service('prometheus'):
+            assert dd.hostname is not None
             prom_services.append(dd.hostname)
             deps.append(dd.name())
         grafana_data_sources = self.mgr.template.render(
@@ -69,6 +73,7 @@ class GrafanaService(CephadmService):
     def config_dashboard(self, daemon_descrs: List[DaemonDescription]) -> None:
         # TODO: signed cert
         dd = self.get_active_daemon(daemon_descrs)
+        assert dd.hostname is not None
         service_url = 'https://{}:{}'.format(
             self._inventory_get_addr(dd.hostname), self.DEFAULT_SERVICE_PORT)
         self._set_service_url_on_dashboard(
@@ -77,6 +82,12 @@ class GrafanaService(CephadmService):
             'dashboard set-grafana-api-url',
             service_url
         )
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        warn, warn_message = self._enough_daemons_to_stop(self.TYPE, daemon_ids, 'Grafana', 1)
+        if warn and not force:
+            return HandleCommandResult(-errno.EBUSY, '', warn_message)
+        return HandleCommandResult(0, warn_message, '')
 
 
 class AlertmanagerService(CephadmService):
@@ -119,6 +130,7 @@ class AlertmanagerService(CephadmService):
                 continue
             if dd.daemon_id == self.mgr.get_mgr_id():
                 continue
+            assert dd.hostname is not None
             addr = self.mgr.inventory.get_addr(dd.hostname)
             dashboard_urls.append('%s//%s:%s/' % (proto, addr.split(':')[0],
                                                   port))
@@ -132,6 +144,7 @@ class AlertmanagerService(CephadmService):
         peers = []
         port = '9094'
         for dd in self.mgr.cache.get_daemons_by_service('alertmanager'):
+            assert dd.hostname is not None
             deps.append(dd.name())
             addr = self.mgr.inventory.get_addr(dd.hostname)
             peers.append(addr.split(':')[0] + ':' + port)
@@ -151,6 +164,7 @@ class AlertmanagerService(CephadmService):
 
     def config_dashboard(self, daemon_descrs: List[DaemonDescription]) -> None:
         dd = self.get_active_daemon(daemon_descrs)
+        assert dd.hostname is not None
         service_url = 'http://{}:{}'.format(self._inventory_get_addr(dd.hostname),
                                             self.DEFAULT_SERVICE_PORT)
         self._set_service_url_on_dashboard(
@@ -159,6 +173,12 @@ class AlertmanagerService(CephadmService):
             'dashboard set-alertmanager-api-host',
             service_url
         )
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        warn, warn_message = self._enough_daemons_to_stop(self.TYPE, daemon_ids, 'Alertmanager', 1)
+        if warn and not force:
+            return HandleCommandResult(-errno.EBUSY, '', warn_message)
+        return HandleCommandResult(0, warn_message, '')
 
 
 class PrometheusService(CephadmService):
@@ -194,12 +214,14 @@ class PrometheusService(CephadmService):
                 continue
             if dd.daemon_id == self.mgr.get_mgr_id():
                 continue
+            assert dd.hostname is not None
             addr = self.mgr.inventory.get_addr(dd.hostname)
             mgr_scrape_list.append(addr.split(':')[0] + ':' + port)
 
         # scrape node exporters
         nodes = []
         for dd in self.mgr.cache.get_daemons_by_service('node-exporter'):
+            assert dd.hostname is not None
             deps.append(dd.name())
             addr = self.mgr.inventory.get_addr(dd.hostname)
             nodes.append({
@@ -210,6 +232,7 @@ class PrometheusService(CephadmService):
         # scrape alert managers
         alertmgr_targets = []
         for dd in self.mgr.cache.get_daemons_by_service('alertmanager'):
+            assert dd.hostname is not None
             deps.append(dd.name())
             addr = self.mgr.inventory.get_addr(dd.hostname)
             alertmgr_targets.append("'{}:9093'".format(addr.split(':')[0]))
@@ -245,6 +268,7 @@ class PrometheusService(CephadmService):
 
     def config_dashboard(self, daemon_descrs: List[DaemonDescription]) -> None:
         dd = self.get_active_daemon(daemon_descrs)
+        assert dd.hostname is not None
         service_url = 'http://{}:{}'.format(
             self._inventory_get_addr(dd.hostname), self.DEFAULT_SERVICE_PORT)
         self._set_service_url_on_dashboard(
@@ -253,6 +277,12 @@ class PrometheusService(CephadmService):
             'dashboard set-prometheus-api-host',
             service_url
         )
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        warn, warn_message = self._enough_daemons_to_stop(self.TYPE, daemon_ids, 'Prometheus', 1)
+        if warn and not force:
+            return HandleCommandResult(-errno.EBUSY, '', warn_message)
+        return HandleCommandResult(0, warn_message, '')
 
 
 class NodeExporterService(CephadmService):
@@ -265,3 +295,9 @@ class NodeExporterService(CephadmService):
     def generate_config(self, daemon_spec: CephadmDaemonSpec) -> Tuple[Dict[str, Any], List[str]]:
         assert self.TYPE == daemon_spec.daemon_type
         return {}, []
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        # since node exporter runs on each host and cannot compromise data, no extra checks required
+        names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
+        out = f'It is presumed safe to stop {names}'
+        return HandleCommandResult(0, out, '')

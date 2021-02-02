@@ -16,6 +16,7 @@
 #include "common/StackStringStream.h"
 #include "common/entity_name.h"
 
+#include "include/compat.h"
 #include "include/Context.h"
 #include "include/frag.h"
 #include "include/xlist.h"
@@ -664,6 +665,8 @@ struct inode_t {
 
   std::basic_string<char,std::char_traits<char>,Allocator<char>> stray_prior_path; //stores path before unlink
 
+  bool fscrypt = false; // fscrypt enabled ?
+
 private:
   bool older_is_consistent(const inode_t &other) const;
 };
@@ -727,6 +730,8 @@ void inode_t<Allocator>::encode(ceph::buffer::list &bl, uint64_t features) const
 
   encode(export_ephemeral_random_pin, bl);
   encode(export_ephemeral_distributed_pin, bl);
+
+  encode(fscrypt, bl);
 
   ENCODE_FINISH(bl);
 }
@@ -832,6 +837,12 @@ void inode_t<Allocator>::decode(ceph::buffer::list::const_iterator &p)
   } else {
     export_ephemeral_random_pin = 0;
     export_ephemeral_distributed_pin = false;
+  }
+
+  if (struct_v >= 17) {
+    decode(fscrypt, p);
+  } else {
+    fscrypt = 0;
   }
 
   DECODE_FINISH(p);

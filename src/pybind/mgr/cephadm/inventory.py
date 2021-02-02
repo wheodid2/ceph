@@ -2,7 +2,7 @@ import datetime
 from copy import copy
 import json
 import logging
-from typing import TYPE_CHECKING, Dict, List, Iterator, Optional, Any, Tuple, Set
+from typing import cast, TYPE_CHECKING, Dict, List, Iterator, Optional, Any, Tuple, Set
 
 import orchestrator
 from ceph.deployment import inventory
@@ -31,6 +31,10 @@ class Inventory:
         i = self.mgr.get_store('inventory')
         if i:
             self._inventory: Dict[str, dict] = json.loads(i)
+            # handle old clusters missing 'hostname' key from hostspec
+            for k, v in self._inventory.items():
+                if 'hostname' not in v:
+                    v['hostname'] = k
         else:
             self._inventory = dict()
         logger.debug('Loaded inventory %s' % self._inventory)
@@ -122,9 +126,9 @@ class SpecStore():
         for k, v in self.mgr.get_store_prefix(SPEC_STORE_PREFIX).items():
             service_name = k[len(SPEC_STORE_PREFIX):]
             try:
-                v = json.loads(v)
-                spec = ServiceSpec.from_json(v['spec'])
-                created = str_to_datetime(v['created'])
+                j = cast(Dict[str, dict], json.loads(v))
+                spec = ServiceSpec.from_json(j['spec'])
+                created = str_to_datetime(cast(str, j['created']))
                 self.specs[service_name] = spec
                 self.spec_created[service_name] = created
                 self.mgr.log.debug('SpecStore: loaded spec for %s' % (
@@ -463,6 +467,7 @@ class HostCache():
         """Provide a list of the types of daemons on the host"""
         result = set()
         for _d, dm in self.daemons[hostname].items():
+            assert dm.daemon_type is not None
             result.add(dm.daemon_type)
         return list(result)
 

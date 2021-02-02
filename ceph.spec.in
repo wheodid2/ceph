@@ -62,6 +62,8 @@
 %endif
 %bcond_with seastar
 %bcond_with jaeger
+%bcond_with rbd_rwl_cache
+%bcond_with rbd_ssd_cache
 %if 0%{?fedora} || 0%{?suse_version} >= 1500
 # distros that ship cmd2 and/or colorama
 %bcond_without cephfs_shell
@@ -420,7 +422,7 @@ BuildArch:      noarch
 Requires:       lvm2
 Requires:       python%{python3_pkgversion}
 %if 0%{?weak_deps}
-Recommends:     podman
+Recommends:     podman >= 2.0.2
 %endif
 %description -n cephadm
 Utility to bootstrap a Ceph cluster and manage Ceph daemons deployed 
@@ -1268,6 +1270,12 @@ ${CMAKE} .. \
 %if 0%{with cmake_verbose_logging}
     -DCMAKE_VERBOSE_MAKEFILE=ON \
 %endif
+%if 0%{with rbd_rwl_cache}
+    -DWITH_RBD_RWL=ON \
+%endif
+%if 0%{with rbd_ssd_cache}
+    -DWITH_RBD_SSD_CACHE=ON \
+%endif
     -DBOOST_J=$CEPH_SMP_NCPUS \
     -DWITH_GRAFANA=ON
 
@@ -1700,6 +1708,7 @@ fi
 %{_datadir}/ceph/mgr/iostat
 %{_datadir}/ceph/mgr/localpool
 %{_datadir}/ceph/mgr/mds_autoscaler
+%{_datadir}/ceph/mgr/mirroring
 %{_datadir}/ceph/mgr/orchestrator
 %{_datadir}/ceph/mgr/osd_perf_query
 %{_datadir}/ceph/mgr/osd_support
@@ -2202,8 +2211,6 @@ fi
 %files -n python%{python3_pkgversion}-cephfs
 %{python3_sitearch}/cephfs.cpython*.so
 %{python3_sitearch}/cephfs-*.egg-info
-%{python3_sitelib}/ceph_volume_client.py
-%{python3_sitelib}/__pycache__/ceph_volume_client.cpython*.py*
 
 %files -n python%{python3_pkgversion}-ceph-argparse
 %{python3_sitelib}/ceph_argparse.py

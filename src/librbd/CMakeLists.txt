@@ -140,6 +140,7 @@ set(librbd_internal_srcs
   migration/ImageDispatch.cc
   migration/NativeFormat.cc
   migration/OpenSourceImageRequest.cc
+  migration/QCOWFormat.cc
   migration/RawFormat.cc
   migration/RawSnapshot.cc
   migration/S3Stream.cc
@@ -299,6 +300,8 @@ if(WITH_RBD_RWL OR WITH_RBD_SSD_CACHE)
     blk
     ceph-common
     cls_rbd_client
+    libneorados
+    librados
     StdFilesystem::filesystem)
 
   if(WITH_RBD_RWL)
@@ -325,11 +328,11 @@ target_link_libraries(librbd PRIVATE
   rbd_internal
   rbd_types
   journal
-  libneorados
-  librados
   cls_rbd_client
   cls_lock_client
   cls_journal_client
+  libneorados
+  librados
   ceph-common
   pthread
   ${CMAKE_DL_LIBS}
@@ -341,7 +344,7 @@ endif()
 if(ENABLE_SHARED)
   set_target_properties(librbd PROPERTIES
     OUTPUT_NAME rbd
-    VERSION 1.12.0
+    VERSION 1.17.0
     SOVERSION 1
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)

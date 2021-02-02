@@ -6,7 +6,7 @@ import pytest
 
 from ceph.deployment.drive_group import DriveGroupSpec, DeviceSelection
 from cephadm.serve import CephadmServe
-from cephadm.services.osd import OSD, OSDQueue
+from cephadm.services.osd import OSD, OSDRemovalQueue
 
 try:
     from typing import Any, List
@@ -513,10 +513,10 @@ class TestCephadm(object):
                                                       hostname='test',
                                                       fullname='osd.0',
                                                       process_started_at=datetime_now(),
-                                                      remove_util=cephadm_module.rm_util
+                                                      remove_util=cephadm_module.to_remove_osds.rm_util
                                                       ))
-            cephadm_module.rm_util.process_removal_queue()
-            assert cephadm_module.to_remove_osds == OSDQueue()
+            cephadm_module.to_remove_osds.process_removal_queue()
+            assert cephadm_module.to_remove_osds == OSDRemovalQueue(cephadm_module)
 
             c = cephadm_module.remove_osds_status()
             out = wait(cephadm_module, c)
@@ -776,7 +776,7 @@ class TestCephadm(object):
             match_glob(out, "Scheduled mds.fsname update...")
             CephadmServe(cephadm_module)._apply_all_services()
 
-            ok_to_stop.assert_called_with([daemon[4:]])
+            ok_to_stop.assert_called_with([daemon[4:]], force=True)
 
             assert_rm_daemon(cephadm_module, spec.service_name(), 'host1')  # verifies ok-to-stop
             assert_rm_daemon(cephadm_module, spec.service_name(), 'host2')

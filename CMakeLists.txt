@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10.2)
 # remove cmake/modules/FindPython* once 3.12 is required
 
 project(ceph
-  VERSION 16.0.0
+  VERSION 17.0.0
   LANGUAGES CXX C ASM)
 
 foreach(policy
@@ -42,6 +42,16 @@ endif()
 if(MINGW)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-allow-multiple-definition")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-allow-multiple-definition")
+
+  # By default, cmake generates import libs for executables. The issue is that
+  # for rados and rbd, the executable import lib overrides the library import lib.
+  # For example, for rados.exe, it will end up generating a librados.dll.a import lib.
+  # We're providing custom rules to disable import libs for executables.
+  set(CMAKE_C_LINK_EXECUTABLE
+    "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> ${CMAKE_GNULD_IMAGE_VERSION} <LINK_LIBRARIES>")
+  set(CMAKE_CXX_LINK_EXECUTABLE
+    "<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> ${CMAKE_GNULD_IMAGE_VERSION} <LINK_LIBRARIES>")
+
 endif()
 
 option(WITH_CCACHE "Build with ccache.")
@@ -340,7 +350,15 @@ else(ALLOCATOR)
   endif(gperftools_FOUND)
 endif(ALLOCATOR)
 
-if(HAVE_LIBTCMALLOC AND WITH_STATIC_LIBSTDCXX)
+if(${ALLOCATOR} STREQUAL "libc" AND WITH_SYSTEM_BOOST)
+  # valgrind can only work with libc allocator
+  # if system boost is not used, valgrind use should
+  #   be indicated via the WITH_BOOST_VALGRIND parameter
+  add_definitions(-DBOOST_USE_VALGRIND)
+endif()
+
+# Mingw generates incorrect entry points when using "-pie".
+if(WIN32 OR (HAVE_LIBTCMALLOC AND WITH_STATIC_LIBSTDCXX))
   set(EXE_LINKER_USE_PIE FALSE)
 else()
   set(EXE_LINKER_USE_PIE ${ENABLE_SHARED})

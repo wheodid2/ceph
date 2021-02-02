@@ -75,7 +75,7 @@ class CephadmServe:
                 self._update_paused_health()
 
                 if not self.mgr.paused:
-                    self.mgr.rm_util.process_removal_queue()
+                    self.mgr.to_remove_osds.process_removal_queue()
 
                     self.mgr.migration.migrate()
                     if self.mgr.migration.is_migration_ongoing():
@@ -171,9 +171,14 @@ class CephadmServe:
         refresh(self.mgr.cache.get_hosts())
 
         health_changed = False
-        if 'CEPHADM_HOST_CHECK_FAILED' in self.mgr.health_checks:
-            del self.mgr.health_checks['CEPHADM_HOST_CHECK_FAILED']
-            health_changed = True
+        for k in [
+                'CEPHADM_HOST_CHECK_FAILED',
+                'CEPHADM_FAILED_DAEMON'
+                'CEPHADM_REFRESH_FAILED',
+        ]:
+            if k in self.mgr.health_checks:
+                del self.mgr.health_checks[k]
+                health_changed = True
         if bad_hosts:
             self.mgr.health_checks['CEPHADM_HOST_CHECK_FAILED'] = {
                 'severity': 'warning',
@@ -190,8 +195,19 @@ class CephadmServe:
                 'detail': failures,
             }
             health_changed = True
-        elif 'CEPHADM_REFRESH_FAILED' in self.mgr.health_checks:
-            del self.mgr.health_checks['CEPHADM_REFRESH_FAILED']
+        failed_daemons = []
+        for dd in self.mgr.cache.get_daemons():
+            if dd.status is not None and dd.status < 0:
+                failed_daemons.append('daemon %s on %s is in %s state' % (
+                    dd.name(), dd.hostname, dd.status_desc
+                ))
+        if failed_daemons:
+            self.mgr.health_checks['CEPHADM_FAILED_DAEMON'] = {
+                'severity': 'warning',
+                'summary': '%d failed cephadm daemon(s)' % len(failed_daemons),
+                'count': len(failed_daemons),
+                'detail': failed_daemons,
+            }
             health_changed = True
         if health_changed:
             self.mgr.set_health_checks(self.mgr.health_checks)
@@ -219,18 +235,9 @@ class CephadmServe:
 
     def _refresh_host_daemons(self, host: str) -> Optional[str]:
         try:
-            out, err, code = self._run_cephadm(
-                host, 'mon', 'ls', [], no_fsid=True)
-            if code:
-                return 'host %s cephadm ls returned %d: %s' % (
-                    host, code, err)
-            ls = json.loads(''.join(out))
-        except ValueError:
-            msg = 'host %s scrape failed: Cannot decode JSON' % host
-            self.log.exception('%s: \'%s\'' % (msg, ''.join(out)))
-            return msg
-        except Exception as e:
-            return 'host %s scrape failed: %s' % (host, e)
+            ls = self._run_cephadm_json(host, 'mon', 'ls', [], no_fsid=True)
+        except OrchestratorError as e:
+            return str(e)
         dm = {}
         for d in ls:
             if not d['style'].startswith('cephadm'):
@@ -276,51 +283,22 @@ class CephadmServe:
 
     def _refresh_facts(self, host: str) -> Optional[str]:
         try:
-            out, err, code = self._run_cephadm(
-                host, cephadmNoImage, 'gather-facts', [],
-                error_ok=True, no_fsid=True)
+            val = self._run_cephadm_json(host, cephadmNoImage, 'gather-facts', [], no_fsid=True)
+        except OrchestratorError as e:
+            return str(e)
 
-            if code:
-                return 'host %s gather-facts returned %d: %s' % (
-                    host, code, err)
-        except Exception as e:
-            return 'host %s gather facts failed: %s' % (host, e)
-        self.log.debug('Refreshed host %s facts' % (host))
-        self.mgr.cache.update_host_facts(host, json.loads(''.join(out)))
+        self.mgr.cache.update_host_facts(host, val)
+
         return None
 
     def _refresh_host_devices(self, host: str) -> Optional[str]:
         try:
-            out, err, code = self._run_cephadm(
-                host, 'osd',
-                'ceph-volume',
-                ['--', 'inventory', '--format=json', '--filter-for-batch'])
-            if code:
-                return 'host %s ceph-volume inventory returned %d: %s' % (
-                    host, code, err)
-            devices = json.loads(''.join(out))
-        except ValueError:
-            msg = 'host %s scrape failed: Cannot decode JSON' % host
-            self.log.exception('%s: \'%s\'' % (msg, ''.join(out)))
-            return msg
-        except Exception as e:
-            return 'host %s ceph-volume inventory failed: %s' % (host, e)
-        try:
-            out, err, code = self._run_cephadm(
-                host, 'mon',
-                'list-networks',
-                [],
-                no_fsid=True)
-            if code:
-                return 'host %s list-networks returned %d: %s' % (
-                    host, code, err)
-            networks = json.loads(''.join(out))
-        except ValueError:
-            msg = 'host %s scrape failed: Cannot decode JSON' % host
-            self.log.exception('%s: \'%s\'' % (msg, ''.join(out)))
-            return msg
-        except Exception as e:
-            return 'host %s list-networks failed: %s' % (host, e)
+            devices = self._run_cephadm_json(host, 'osd', 'ceph-volume',
+                                             ['--', 'inventory', '--format=json', '--filter-for-batch'])
+            networks = self._run_cephadm_json(host, 'mon', 'list-networks', [], no_fsid=True)
+        except OrchestratorError as e:
+            return str(e)
+
         self.log.debug('Refreshed host %s devices (%d) networks (%s)' % (
             host, len(devices), len(networks)))
         devices = inventory.Devices.from_json(devices)
@@ -385,17 +363,20 @@ class CephadmServe:
             daemon_detail = []  # type: List[str]
             for item in ls:
                 host = item.get('hostname')
+                assert isinstance(host, str)
                 daemons = item.get('services')  # misnomer!
+                assert isinstance(daemons, list)
                 missing_names = []
                 for s in daemons:
-                    name = '%s.%s' % (s.get('type'), s.get('id'))
+                    daemon_id = s.get('id')
+                    assert daemon_id
+                    name = '%s.%s' % (s.get('type'), daemon_id)
                     if s.get('type') == 'rbd-mirror':
-                        defaults = defaultdict(lambda: None, {'id': None})
                         metadata = self.mgr.get_metadata(
-                            "rbd-mirror", s.get('id'), default=defaults)
-                        if metadata['id']:
+                            "rbd-mirror", daemon_id)
+                        try:
                             name = '%s.%s' % (s.get('type'), metadata['id'])
-                        else:
+                        except (KeyError, TypeError):
                             self.log.debug(
                                 "Failed to find daemon id for rbd-mirror service %s" % (s.get('id')))
 
@@ -592,7 +573,9 @@ class CephadmServe:
         # remove any?
         def _ok_to_stop(remove_daemon_hosts: Set[orchestrator.DaemonDescription]) -> bool:
             daemon_ids = [d.daemon_id for d in remove_daemon_hosts]
-            r = self.mgr.cephadm_services[service_type].ok_to_stop(daemon_ids)
+            assert None not in daemon_ids
+            # setting force flag retains previous behavior, should revisit later.
+            r = self.mgr.cephadm_services[service_type].ok_to_stop(cast(List[str], daemon_ids), force=True)
             return not r.retval
 
         while remove_daemon_hosts and not _ok_to_stop(remove_daemon_hosts):
@@ -602,6 +585,7 @@ class CephadmServe:
             r = True
             # NOTE: we are passing the 'force' flag here, which means
             # we can delete a mon instances data.
+            assert d.hostname is not None
             self._remove_daemon(d.name(), d.hostname)
 
         if r is None:
@@ -615,6 +599,9 @@ class CephadmServe:
         for dd in daemons:
             # orphan?
             spec = self.mgr.spec_store.specs.get(dd.service_name(), None)
+            assert dd.hostname is not None
+            assert dd.daemon_type is not None
+            assert dd.daemon_id is not None
             if not spec and dd.daemon_type not in ['mon', 'mgr', 'osd']:
                 # (mon and mgr specs should always exist; osds aren't matched
                 # to a service spec)
@@ -720,6 +707,7 @@ class CephadmServe:
             ha_rgw_daemons = self.mgr.cache.get_daemons_by_service(spec.service_name())
             for daemon in ha_rgw_daemons:
                 if daemon.hostname in [h.hostname for h in hosts] and daemon.hostname not in add_hosts:
+                    assert daemon.hostname is not None
                     self.mgr.cache.schedule_daemon_action(
                         daemon.hostname, daemon.name(), 'reconfig')
         return spec
@@ -869,6 +857,28 @@ class CephadmServe:
 
             return "Removed {} from host '{}'".format(name, host)
 
+    def _run_cephadm_json(self,
+                          host: str,
+                          entity: Union[CephadmNoImage, str],
+                          command: str,
+                          args: List[str],
+                          no_fsid: Optional[bool] = False,
+                          image: Optional[str] = "",
+                          ) -> Any:
+        try:
+            out, err, code = self._run_cephadm(
+                host, entity, command, args, no_fsid=no_fsid, image=image)
+            if code:
+                raise OrchestratorError(f'host {host} `cephadm {command}` returned {code}: {err}')
+        except Exception as e:
+            raise OrchestratorError(f'host {host} `cephadm {command}` failed: {e}')
+        try:
+            return json.loads(''.join(out))
+        except (ValueError, KeyError):
+            msg = f'host {host} `cephadm {command}` failed: Cannot decode JSON'
+            self.log.exception(f'{msg}: {"".join(out)}')
+            raise OrchestratorError(msg)
+
     def _run_cephadm(self,
                      host: str,
                      entity: Union[CephadmNoImage, str],
@@ -978,27 +988,16 @@ class CephadmServe:
         if self.mgr.cache.host_needs_registry_login(host) and self.mgr.registry_url:
             self._registry_login(host, self.mgr.registry_url,
                                  self.mgr.registry_username, self.mgr.registry_password)
-        out, err, code = self._run_cephadm(
-            host, '', 'pull', [],
-            image=image_name,
-            no_fsid=True,
-            error_ok=True)
-        if code:
-            raise OrchestratorError('Failed to pull %s on %s: %s' % (
-                image_name, host, '\n'.join(out)))
-        try:
-            j = json.loads('\n'.join(out))
-            r = ContainerInspectInfo(
-                j['image_id'],
-                j.get('ceph_version'),
-                j.get('repo_digest')
-            )
-            self.log.debug(f'image {image_name} -> {r}')
-            return r
-        except (ValueError, KeyError) as _:
-            msg = 'Failed to pull %s on %s: Cannot decode JSON' % (image_name, host)
-            self.log.exception('%s: \'%s\'' % (msg, '\n'.join(out)))
-            raise OrchestratorError(msg)
+
+        j = self._run_cephadm_json(host, '', 'pull', [], image=image_name, no_fsid=True)
+
+        r = ContainerInspectInfo(
+            j['image_id'],
+            j.get('ceph_version'),
+            j.get('repo_digest')
+        )
+        self.log.debug(f'image {image_name} -> {r}')
+        return r
 
     # function responsible for logging single host into custom registry
     def _registry_login(self, host: str, url: Optional[str], username: Optional[str], password: Optional[str]) -> Optional[str]:

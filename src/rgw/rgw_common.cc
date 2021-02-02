@@ -387,7 +387,7 @@ struct str_len meta_prefixes[] = { STR_LEN_ENTRY("HTTP_X_AMZ"),
                                    STR_LEN_ENTRY("HTTP_X_ACCOUNT"),
                                    {NULL, 0} };
 
-void req_info::init_meta_info(bool *found_bad_meta)
+void req_info::init_meta_info(const DoutPrefixProvider *dpp, bool *found_bad_meta)
 {
   x_meta_map.clear();
 
@@ -399,7 +399,7 @@ void req_info::init_meta_info(bool *found_bad_meta)
       int len = meta_prefixes[prefix_num].len;
       const char *p = header_name.c_str();
       if (strncmp(p, prefix, len) == 0) {
-        dout(10) << "meta>> " << p << dendl;
+        ldpp_dout(dpp, 10) << "meta>> " << p << dendl;
         const char *name = p+len; /* skip the prefix */
         int name_len = header_name.size() - len;
 
@@ -431,7 +431,7 @@ void req_info::init_meta_info(bool *found_bad_meta)
     }
   }
   for (const auto& kv: x_meta_map) {
-    dout(10) << "x>> " << kv.first << ":" << rgw::crypt_sanitize::x_meta_map{kv.first, kv.second} << dendl;
+    ldpp_dout(dpp, 10) << "x>> " << kv.first << ":" << rgw::crypt_sanitize::x_meta_map{kv.first, kv.second} << dendl;
   }
 }
 
@@ -788,7 +788,7 @@ int NameVal::parse()
   return ret; 
 }
 
-int RGWHTTPArgs::parse()
+int RGWHTTPArgs::parse(const DoutPrefixProvider *dpp)
 {
   int pos = 0;
   bool end = false;
@@ -820,7 +820,7 @@ int RGWHTTPArgs::parse()
         });
       }
       string& val = nv.get_val();
-      dout(10) << "name: " << name << " val: " << val << dendl;
+      ldpp_dout(dpp, 10) << "name: " << name << " val: " << val << dendl;
       append(name, val);
     }
 
@@ -1012,14 +1012,16 @@ namespace {
 
 struct perm_state_from_req_state : public perm_state_base {
   req_state * const s;
-  perm_state_from_req_state(req_state * const _s) : perm_state_base(_s->cct,
-                                                                    _s->env,
-                                                                    _s->auth.identity.get(),
-                                                                    _s->bucket.get() ? _s->bucket->get_info() : RGWBucketInfo(),
-                                                                    _s->perm_mask,
-                                                                    _s->defer_to_bucket_acls,
-                                                                    _s->bucket_access_conf),
-                                                                    s(_s) {}
+  perm_state_from_req_state(req_state * const _s)
+    : perm_state_base(_s->cct,
+		      _s->env,
+		      _s->auth.identity.get(),
+		      _s->bucket.get() ? _s->bucket->get_info() : RGWBucketInfo(),
+		      _s->perm_mask,
+		      _s->defer_to_bucket_acls,
+		      _s->bucket_access_conf),
+      s(_s) {}
+
   std::optional<bool> get_request_payer() const override {
     const char *request_payer = s->info.env->get("HTTP_X_AMZ_REQUEST_PAYER");
     if (!request_payer) {

@@ -192,6 +192,10 @@ public:
 			      max_entries, log_entries,
 			      std::string(marker.value_or("")),
 			      out_marker, truncated, null_yield);
+    if (r == -ENOENT) {
+      *truncated = false;
+      return 0;
+    }
     if (r < 0) {
       lderr(cct) << __PRETTY_FUNCTION__
 		 << ": failed to list " << oids[index]
@@ -677,24 +681,25 @@ int RGWDataChangesLog::get_log_shard_id(rgw_bucket& bucket, int shard_id) {
   return choose_oid(bs);
 }
 
-bool RGWDataChangesLog::filter_bucket(const rgw_bucket& bucket,
+bool RGWDataChangesLog::filter_bucket(const DoutPrefixProvider *dpp, 
+                                      const rgw_bucket& bucket,
 				      optional_yield y) const
 {
   if (!bucket_filter) {
     return true;
   }
 
-  return bucket_filter(bucket, y);
+  return bucket_filter(bucket, y, dpp);
 }
 
 std::string RGWDataChangesLog::get_oid(int i) const {
   return be->get_oid(i);
 }
 
-int RGWDataChangesLog::add_entry(const RGWBucketInfo& bucket_info, int shard_id) {
+int RGWDataChangesLog::add_entry(const DoutPrefixProvider *dpp, const RGWBucketInfo& bucket_info, int shard_id) {
   auto& bucket = bucket_info.bucket;
 
-  if (!filter_bucket(bucket, null_yield)) {
+  if (!filter_bucket(dpp, bucket, null_yield)) {
     return 0;
   }
 
@@ -860,7 +865,7 @@ RGWDataChangesLog::~RGWDataChangesLog() {
   }
 }
 
-void RGWDataChangesLog::renew_run() {
+void RGWDataChangesLog::renew_run() noexcept {
   for (;;) {
     dout(2) << "RGWDataChangesLog::ChangesRenewThread: start" << dendl;
     int r = renew_entries();

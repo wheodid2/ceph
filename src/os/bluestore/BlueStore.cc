@@ -4090,12 +4090,16 @@ void *BlueStore::MempoolThread::entry()
   }
 
   binned_kv_cache = store->db->get_priority_cache();
+  binned_kv_onode_cache = store->db->get_priority_cache(PREFIX_OBJ);
   if (store->cache_autotune && binned_kv_cache != nullptr) {
     pcm = std::make_shared<PriorityCache::Manager>(
         store->cct, min, max, target, true, "bluestore-pricache");
     pcm->insert("kv", binned_kv_cache, true);
     pcm->insert("meta", meta_cache, true);
     pcm->insert("data", data_cache, true);
+    if (binned_kv_onode_cache != nullptr) {
+      pcm->insert("kv_onode", binned_kv_onode_cache, true);
+    }
   }
 
   utime_t next_balance = ceph_clock_now();
@@ -4177,6 +4181,9 @@ void BlueStore::MempoolThread::_adjust_cache_settings()
   if (binned_kv_cache != nullptr) {
     binned_kv_cache->set_cache_ratio(store->cache_kv_ratio);
   }
+  if (binned_kv_onode_cache != nullptr) {
+    binned_kv_onode_cache->set_cache_ratio(store->cache_kv_onode_ratio);
+  }
   meta_cache->set_cache_ratio(store->cache_meta_ratio);
   data_cache->set_cache_ratio(store->cache_data_ratio);
 }
@@ -4186,12 +4193,15 @@ void BlueStore::MempoolThread::_resize_shards(bool interval_stats)
   size_t onode_shards = store->onode_cache_shards.size();
   size_t buffer_shards = store->buffer_cache_shards.size();
   int64_t kv_used = store->db->get_cache_usage();
+  int64_t kv_onode_used = store->db->get_cache_usage(PREFIX_OBJ);
   int64_t meta_used = meta_cache->_get_used_bytes();
   int64_t data_used = data_cache->_get_used_bytes();
 
   uint64_t cache_size = store->cache_size;
   int64_t kv_alloc =
      static_cast<int64_t>(store->cache_kv_ratio * cache_size); 
+  int64_t kv_onode_alloc =
+     static_cast<int64_t>(store->cache_kv_onode_ratio * cache_size);
   int64_t meta_alloc =
      static_cast<int64_t>(store->cache_meta_ratio * cache_size);
   int64_t data_alloc =
@@ -4202,12 +4212,17 @@ void BlueStore::MempoolThread::_resize_shards(bool interval_stats)
     kv_alloc = binned_kv_cache->get_committed_size();
     meta_alloc = meta_cache->get_committed_size();
     data_alloc = data_cache->get_committed_size();
+    if (binned_kv_onode_cache != nullptr) {
+      kv_onode_alloc = binned_kv_onode_cache->get_committed_size();
+    }
   }
   
   if (interval_stats) {
     dout(5) << __func__  << " cache_size: " << cache_size
                   << " kv_alloc: " << kv_alloc
                   << " kv_used: " << kv_used
+                  << " kv_onode_alloc: " << kv_onode_alloc
+                  << " kv_onode_used: " << kv_onode_used
                   << " meta_alloc: " << meta_alloc
                   << " meta_used: " << meta_used
                   << " data_alloc: " << data_alloc
@@ -4216,6 +4231,8 @@ void BlueStore::MempoolThread::_resize_shards(bool interval_stats)
     dout(20) << __func__  << " cache_size: " << cache_size
                    << " kv_alloc: " << kv_alloc
                    << " kv_used: " << kv_used
+                   << " kv_onode_alloc: " << kv_onode_alloc
+                   << " kv_onode_used: " << kv_onode_used
                    << " meta_alloc: " << meta_alloc
                    << " meta_used: " << meta_used
                    << " data_alloc: " << data_alloc
@@ -4733,16 +4750,23 @@ int BlueStore::_set_cache_sizes()
     }
   }
 
-  cache_meta_ratio = cct->_conf->bluestore_cache_meta_ratio;
+  cache_meta_ratio = cct->_conf.get_val<double>("bluestore_cache_meta_ratio");
   if (cache_meta_ratio < 0 || cache_meta_ratio > 1.0) {
     derr << __func__ << " bluestore_cache_meta_ratio (" << cache_meta_ratio
          << ") must be in range [0,1.0]" << dendl;
     return -EINVAL;
   }
 
-  cache_kv_ratio = cct->_conf->bluestore_cache_kv_ratio;
+  cache_kv_ratio = cct->_conf.get_val<double>("bluestore_cache_kv_ratio");
   if (cache_kv_ratio < 0 || cache_kv_ratio > 1.0) {
     derr << __func__ << " bluestore_cache_kv_ratio (" << cache_kv_ratio
+         << ") must be in range [0,1.0]" << dendl;
+    return -EINVAL;
+  }
+
+  cache_kv_onode_ratio = cct->_conf.get_val<double>("bluestore_cache_kv_onode_ratio");
+  if (cache_kv_onode_ratio < 0 || cache_kv_onode_ratio > 1.0) {
+    derr << __func__ << " bluestore_cache_kv_onode_ratio (" << cache_kv_onode_ratio
          << ") must be in range [0,1.0]" << dendl;
     return -EINVAL;
   }
@@ -4755,8 +4779,10 @@ int BlueStore::_set_cache_sizes()
     return -EINVAL;
   }
 
-  cache_data_ratio =
-    (double)1.0 - (double)cache_meta_ratio - (double)cache_kv_ratio;
+  cache_data_ratio = (double)1.0 - 
+                     (double)cache_meta_ratio - 
+                     (double)cache_kv_ratio - 
+                     (double)cache_kv_onode_ratio;
   if (cache_data_ratio < 0) {
     // deal with floating point imprecision
     cache_data_ratio = 0;
@@ -8600,7 +8626,8 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
       for (it->lower_bound(string()); it->valid(); it->next()) {
         uint64_t pool;
         uint64_t omap_head;
-        const char *c = it->key().c_str();
+        string k = it->key();
+        const char *c = k.c_str();
         c = _key_decode_u64(c, &pool);
         c = _key_decode_u64(c, &omap_head);
         if (used_omap_head.count(omap_head) == 0 &&
@@ -8620,7 +8647,8 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
         uint64_t pool;
         uint32_t hash;
         uint64_t omap_head;
-        const char* c = it->key().c_str();
+        string k = it->key();
+        const char* c = k.c_str();
         c = _key_decode_u64(c, &pool);
         c = _key_decode_u32(c, &hash);
         c = _key_decode_u64(c, &omap_head);
@@ -8628,6 +8656,7 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
           omap_head != last_omap_head) {
           fsck_derr(errors, MAX_FSCK_ERROR_LINES)
             << "fsck error: found stray (per-pg) omap data on omap_head "
+	    << " key " << pretty_binary_string(it->key())
             << omap_head << " " << last_omap_head << " " << used_omap_head.count(omap_head) << fsck_dendl;
           ++errors;
           last_omap_head = omap_head;
@@ -12240,15 +12269,13 @@ void BlueStore::_deferred_queue(TransContext *txc)
   dout(20) << __func__ << " txc " << txc << " osr " << txc->osr << dendl;
 
   DeferredBatch *tmp;
+  txc->osr->deferred_lock.lock();
   {
-    txc->osr->deferred_lock.lock();
     if (!txc->osr->deferred_pending) {
       tmp = new DeferredBatch(cct, txc->osr.get());
     } else {
       tmp  = txc->osr->deferred_pending;
-      txc->osr->deferred_pending = nullptr;
     }
-    txc->osr->deferred_lock.unlock();
   }
 
   tmp->txcs.push_back(*txc);
@@ -12263,7 +12290,6 @@ void BlueStore::_deferred_queue(TransContext *txc)
   }
 
   {
-    txc->osr->deferred_lock.lock();
     ++deferred_queue_size;
     txc->osr->deferred_pending = tmp;
     // condition "tmp->txcs.size() == 1" mean deferred_pending was originally empty.
@@ -12281,7 +12307,6 @@ void BlueStore::_deferred_queue(TransContext *txc)
       txc->osr->deferred_lock.unlock();
     }
   }
-
  }
 
 void BlueStore::deferred_try_submit()

@@ -37,6 +37,7 @@ class IscsiService(CephService):
             'caps': ['mon', 'profile rbd, '
                             'allow command "osd blocklist", '
                             'allow command "config-key get" with "key" prefix "iscsi/"',
+                     'mgr', 'allow command "service status"',
                      'osd', 'allow rwx'],
         })
 
@@ -90,6 +91,7 @@ class IscsiService(CephService):
                     'value': "true"
                 })
             for dd in daemon_descrs:
+                assert dd.hostname is not None
                 spec = cast(IscsiServiceSpec,
                             self.mgr.spec_store.specs.get(dd.service_name(), None))
                 if not spec:

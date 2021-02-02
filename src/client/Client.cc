@@ -23,7 +23,9 @@
 #include <sys/param.h>
 #include <fcntl.h>
 #include <sys/file.h>
+#ifndef _WIN32
 #include <sys/utsname.h>
+#endif
 #include <sys/uio.h>
 
 #include <boost/lexical_cast.hpp>
@@ -31,7 +33,7 @@
 
 #include "common/async/waiter.h"
 
-#if defined(__FreeBSD__)
+#if defined(__FreeBSD__) || defined(_WIN32)
 #define XATTR_CREATE    0x1
 #define XATTR_REPLACE   0x2
 #else
@@ -126,6 +128,20 @@
 
 #ifndef O_DIRECT
 #define O_DIRECT 0x0
+#endif
+
+// Windows doesn't define those values. While the Posix compatibilty layer
+// doesn't support those values, the Windows native functions do provide
+// similar flags. Special care should be taken if we're going to use those
+// flags in ceph-dokan. The current values are no-ops, while propagating
+// them to the rest of the code might cause the Windows functions to reject
+// them as invalid.
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0x0
+#endif
+
+#ifndef O_SYNC
+#define O_SYNC 0x0
 #endif
 
 #define DEBUG_GETATTR_CAPS (CEPH_CAP_XATTR_SHARED)
@@ -998,6 +1014,7 @@ Inode * Client::add_update_inode(InodeStat *st, utime_t from,
     in->snap_caps |= st->cap.caps;
   }
 
+  in->fscrypt = st->fscrypt;
   return in;
 }
 
@@ -1053,6 +1070,8 @@ void Client::update_dentry_lease(Dentry *dn, LeaseStat *dlease, utime_t from, Me
 {
   utime_t dttl = from;
   dttl += (float)dlease->duration_ms / 1000.0;
+
+  ldout(cct, 15) << __func__ << " " << *dn << " " << *dlease << " from " << from << dendl;
   
   ceph_assert(dn);
 
@@ -1069,6 +1088,7 @@ void Client::update_dentry_lease(Dentry *dn, LeaseStat *dlease, utime_t from, Me
   dn->cap_shared_gen = dn->dir->parent_inode->shared_gen;
   if (dlease->mask & CEPH_LEASE_PRIMARY_LINK)
     dn->mark_primary();
+  dn->alternate_name = std::move(dlease->alternate_name);
 }
 
 
@@ -1232,6 +1252,7 @@ void Client::insert_readdir_results(MetaRequest *request, MetaSession *session, 
 	// new dn
 	dn = link(dir, dname, in, NULL);
       }
+      dn->alternate_name = std::move(dlease.alternate_name);
 
       update_dentry_lease(dn, &dlease, request->sent_stamp, session);
       if (hash_order) {
@@ -1264,7 +1285,7 @@ void Client::insert_readdir_results(MetaRequest *request, MetaSession *session, 
 	dirp->cache_index++;
       }
       // add to cached result list
-      dirp->buffer.push_back(dir_result_t::dentry(dn->offset, dname, in));
+      dirp->buffer.push_back(dir_result_t::dentry(dn->offset, dname, dn->alternate_name, in));
       ldout(cct, 15) << __func__ << "  " << hex << dn->offset << dec << ": '" << dname << "' -> " << in->ino << dendl;
     }
 
@@ -2036,6 +2057,13 @@ MetaSession *Client::_get_or_open_mds_session(mds_rank_t mds)
 void Client::populate_metadata(const std::string &mount_root)
 {
   // Hostname
+#ifdef _WIN32
+  // TODO: move this to compat.h
+  char hostname[64];
+  DWORD hostname_sz = 64;
+  GetComputerNameA(hostname, &hostname_sz);
+  metadata["hostname"] = hostname;
+#else
   struct utsname u;
   int r = uname(&u);
   if (r >= 0) {
@@ -2044,6 +2072,7 @@ void Client::populate_metadata(const std::string &mount_root)
   } else {
     ldout(cct, 1) << __func__ << " failed to read hostname (" << cpp_strerror(r) << ")" << dendl;
   }
+#endif
 
   metadata["pid"] = stringify(getpid());
 
@@ -2346,6 +2375,7 @@ ref_t<MClientRequest> Client::build_client_request(MetaRequest *request)
   }
   req->set_filepath(request->get_filepath());
   req->set_filepath2(request->get_filepath2());
+  req->set_alternate_name(request->alternate_name);
   req->set_data(request->data);
   req->set_retry_attempt(request->retry_attempt++);
   req->head.num_fwd = request->num_fwd;
@@ -6705,10 +6735,11 @@ bool Client::_dentry_valid(const Dentry *dn)
 }
 
 int Client::_lookup(Inode *dir, const string& dname, int mask, InodeRef *target,
-		    const UserPerm& perms)
+		    const UserPerm& perms, std::string* alternate_name)
 {
   int r = 0;
   Dentry *dn = NULL;
+  bool did_lookup_request = false;
   // can only request shared caps
   mask &= CEPH_CAP_ANY_SHARED | CEPH_STAT_RSTAT;
 
@@ -6754,13 +6785,13 @@ int Client::_lookup(Inode *dir, const string& dname, int mask, InodeRef *target,
     goto done;
   }
 
+relookup:
   if (dir->dir &&
       dir->dir->dentries.count(dname)) {
     dn = dir->dir->dentries[dname];
 
-    ldout(cct, 20) << __func__ << " have dn " << dname << " mds." << dn->lease_mds << " ttl " << dn->lease_ttl
-	     << " seq " << dn->lease_seq
-	     << dendl;
+    ldout(cct, 20) << __func__ << " have " << *dn << " from mds." << dn->lease_mds
+        << " ttl " << dn->lease_ttl << " seq " << dn->lease_seq << dendl;
 
     if (!dn->inode || dn->inode->caps_issued_mask(mask, true)) {
       if (_dentry_valid(dn)) {
@@ -6792,16 +6823,29 @@ int Client::_lookup(Inode *dir, const string& dname, int mask, InodeRef *target,
     }
   }
 
+  if (did_lookup_request) {
+    r = 0;
+    goto done;
+  }
   r = _do_lookup(dir, dname, mask, target, perms);
-  goto done;
+  did_lookup_request = true;
+  if (r == 0) {
+    /* complete lookup to get dentry for alternate_name */
+    goto relookup;
+  } else {
+    goto done;
+  }
 
  hit_dn:
   if (dn->inode) {
     *target = dn->inode;
+    if (alternate_name)
+      *alternate_name = dn->alternate_name;
   } else {
     r = -ENOENT;
   }
   touch_dn(dn);
+  goto done;
 
  done:
   if (r < 0)
@@ -6833,11 +6877,33 @@ int Client::get_or_create(Inode *dir, const char* name,
   return 0;
 }
 
+int Client::walk(std::string_view path, walk_dentry_result* wdr, const UserPerm& perms, bool followsym)
+{
+  RWRef_t mref_reader(mount_state, CLIENT_MOUNTING);
+  if (!mref_reader.is_state_satisfied())
+    return -ENOTCONN;
+
+  ldout(cct, 10) << __func__ << ": " << path << dendl;
+
+  std::scoped_lock lock(client_lock);
+
+  return path_walk(path, wdr, perms, followsym);
+}
+
 int Client::path_walk(const filepath& origpath, InodeRef *end,
 		      const UserPerm& perms, bool followsym, int mask)
 {
+  walk_dentry_result wdr;
+  int rc = path_walk(origpath, &wdr, perms, followsym, mask);
+  *end = std::move(wdr.in);
+  return rc;
+}
+
+int Client::path_walk(const filepath& origpath, walk_dentry_result* result, const UserPerm& perms, bool followsym, int mask)
+{
   filepath path = origpath;
   InodeRef cur;
+  std::string alternate_name;
   if (origpath.absolute())
     cur = root;
   else
@@ -6865,7 +6931,7 @@ int Client::path_walk(const filepath& origpath, InodeRef *end,
     /* Get extra requested caps on the last component */
     if (i == (path.depth() - 1))
       caps |= mask;
-    int r = _lookup(cur.get(), dname, caps, &next, perms);
+    int r = _lookup(cur.get(), dname, caps, &next, perms, &alternate_name);
     if (r < 0)
       return r;
     // only follow trailing symlink if followsym.  always follow
@@ -6910,15 +6976,17 @@ int Client::path_walk(const filepath& origpath, InodeRef *end,
   }
   if (!cur)
     return -ENOENT;
-  if (end)
-    end->swap(cur);
+  if (result) {
+    result->in = std::move(cur);
+    result->alternate_name = std::move(alternate_name);
+  }
   return 0;
 }
 
 
 // namespace ops
 
-int Client::link(const char *relexisting, const char *relpath, const UserPerm& perm)
+int Client::link(const char *relexisting, const char *relpath, const UserPerm& perm, std::string alternate_name)
 {
   RWRef_t mref_reader(mount_state, CLIENT_MOUNTING);
   if (!mref_reader.is_state_satisfied())
@@ -6959,7 +7027,7 @@ int Client::link(const char *relexisting, const char *relpath, const UserPerm& p
     if (r < 0)
       return r;
   }
-  r = _link(in.get(), dir.get(), name.c_str(), perm);
+  r = _link(in.get(), dir.get(), name.c_str(), perm, std::move(alternate_name));
   return r;
 }
 
@@ -6992,7 +7060,7 @@ int Client::unlink(const char *relpath, const UserPerm& perm)
   return _unlink(dir.get(), name.c_str(), perm);
 }
 
-int Client::rename(const char *relfrom, const char *relto, const UserPerm& perm)
+int Client::rename(const char *relfrom, const char *relto, const UserPerm& perm, std::string alternate_name)
 {
   RWRef_t mref_reader(mount_state, CLIENT_MOUNTING);
   if (!mref_reader.is_state_satisfied())
@@ -7030,14 +7098,14 @@ int Client::rename(const char *relfrom, const char *relto, const UserPerm& perm)
     if (r < 0 && r != -ENOENT)
       return r;
   }
-  r = _rename(fromdir.get(), fromname.c_str(), todir.get(), toname.c_str(), perm);
+  r = _rename(fromdir.get(), fromname.c_str(), todir.get(), toname.c_str(), perm, std::move(alternate_name));
 out:
   return r;
 }
 
 // dirs
 
-int Client::mkdir(const char *relpath, mode_t mode, const UserPerm& perm)
+int Client::mkdir(const char *relpath, mode_t mode, const UserPerm& perm, std::string alternate_name)
 {
   RWRef_t mref_reader(mount_state, CLIENT_MOUNTING);
   if (!mref_reader.is_state_satisfied())
@@ -7065,7 +7133,7 @@ int Client::mkdir(const char *relpath, mode_t mode, const UserPerm& perm)
     if (r < 0)
       return r;
   }
-  return _mkdir(dir.get(), name.c_str(), mode, perm);
+  return _mkdir(dir.get(), name.c_str(), mode, perm, 0, {}, std::move(alternate_name));
 }
 
 int Client::mkdirs(const char *relpath, mode_t mode, const UserPerm& perms)
@@ -7187,7 +7255,7 @@ int Client::mknod(const char *relpath, mode_t mode, const UserPerm& perms, dev_t
 
 // symlinks
   
-int Client::symlink(const char *target, const char *relpath, const UserPerm& perms)
+int Client::symlink(const char *target, const char *relpath, const UserPerm& perms, std::string alternate_name)
 {
   RWRef_t mref_reader(mount_state, CLIENT_MOUNTING);
   if (!mref_reader.is_state_satisfied())
@@ -7214,7 +7282,7 @@ int Client::symlink(const char *target, const char *relpath, const UserPerm& per
     if (r < 0)
       return r;
   }
-  return _symlink(dir.get(), name.c_str(), target, perms);
+  return _symlink(dir.get(), name.c_str(), target, perms, std::move(alternate_name));
 }
 
 int Client::readlink(const char *relpath, char *buf, loff_t size, const UserPerm& perms)
@@ -7474,6 +7542,9 @@ void Client::stat_to_statx(struct stat *st, struct ceph_statx *stx)
 #ifdef __APPLE__
   stx->stx_mtime = st->st_mtimespec;
   stx->stx_atime = st->st_atimespec;
+#elif __WIN32
+  stx->stx_mtime.tv_sec = st->st_mtime;
+  stx->stx_atime.tv_sec = st->st_atime;
 #else
   stx->stx_mtime = st->st_mtim;
   stx->stx_atime = st->st_atim;
@@ -7767,12 +7838,20 @@ int Client::fill_stat(Inode *in, struct stat *st, frag_info_t *dirstat, nest_inf
       st->st_size = in->rstat.rbytes;
     else
       st->st_size = in->dirstat.size();
+// The Windows "stat" structure provides just a subset of the fields that are
+// available on Linux.
+#ifndef _WIN32
     st->st_blocks = 1;
+#endif
   } else {
     st->st_size = in->size;
+#ifndef _WIN32
     st->st_blocks = (in->size + 511) >> 9;
+#endif
   }
+#ifndef _WIN32
   st->st_blksize = std::max<uint32_t>(in->layout.stripe_unit, 4096);
+#endif
 
   if (dirstat)
     *dirstat = in->dirstat;
@@ -8316,7 +8395,7 @@ void Client::fill_dirent(struct dirent *de, const char *name, int type, uint64_t
 {
   strncpy(de->d_name, name, 255);
   de->d_name[255] = '\0';
-#ifndef __CYGWIN__
+#if !defined(__CYGWIN__) && !(defined(_WIN32))
   de->d_ino = ino;
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
   de->d_off = next_off;
@@ -8913,7 +8992,7 @@ int Client::getdir(const char *relpath, list<string>& contents,
 /****** file i/o **********/
 int Client::open(const char *relpath, int flags, const UserPerm& perms,
 		 mode_t mode, int stripe_unit, int stripe_count,
-		 int object_size, const char *data_pool)
+		 int object_size, const char *data_pool, std::string alternate_name)
 {
   RWRef_t mref_reader(mount_state, CLIENT_MOUNTING);
   if (!mref_reader.is_state_satisfied())
@@ -8971,7 +9050,8 @@ int Client::open(const char *relpath, int flags, const UserPerm& perms,
 	goto out;
     }
     r = _create(dir.get(), dname.c_str(), flags, mode, &in, &fh, stripe_unit,
-                stripe_count, object_size, data_pool, &created, perms);
+                stripe_count, object_size, data_pool, &created, perms,
+                std::move(alternate_name));
   }
   if (r < 0)
     goto out;
@@ -8999,12 +9079,6 @@ int Client::open(const char *relpath, int flags, const UserPerm& perms,
   tout(cct) << r << std::endl;
   ldout(cct, 3) << "open exit(" << path << ", " << cflags << ") = " << r << dendl;
   return r;
-}
-
-int Client::open(const char *relpath, int flags, const UserPerm& perms, mode_t mode)
-{
-  /* Use default file striping parameters */
-  return open(relpath, flags, perms, mode, 0, 0, 0, NULL);
 }
 
 int Client::lookup_hash(inodeno_t ino, inodeno_t dirino, const char *name,
@@ -12818,7 +12892,7 @@ int Client::ll_mknodx(Inode *parent, const char *name, mode_t mode,
 int Client::_create(Inode *dir, const char *name, int flags, mode_t mode,
 		    InodeRef *inp, Fh **fhp, int stripe_unit, int stripe_count,
 		    int object_size, const char *data_pool, bool *created,
-		    const UserPerm& perms)
+		    const UserPerm& perms, std::string alternate_name)
 {
   ldout(cct, 8) << "_create(" << dir->ino << " " << name << ", 0" << oct <<
     mode << dec << ")" << dendl;
@@ -12855,6 +12929,7 @@ int Client::_create(Inode *dir, const char *name, int flags, mode_t mode,
   dir->make_nosnap_relative_path(path);
   path.push_dentry(name);
   req->set_filepath(path);
+  req->set_alternate_name(std::move(alternate_name));
   req->set_inode(dir);
   req->head.args.open.flags = cflags | CEPH_O_CREAT;
 
@@ -12911,7 +12986,8 @@ int Client::_create(Inode *dir, const char *name, int flags, mode_t mode,
 }
 
 int Client::_mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& perm,
-		   InodeRef *inp, const std::map<std::string, std::string> &metadata)
+		   InodeRef *inp, const std::map<std::string, std::string> &metadata,
+                   std::string alternate_name)
 {
   ldout(cct, 8) << "_mkdir(" << dir->ino << " " << name << ", 0" << oct
 		<< mode << dec << ", uid " << perm.uid()
@@ -12938,6 +13014,7 @@ int Client::_mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& pe
   req->set_inode(dir);
   req->dentry_drop = CEPH_CAP_FILE_SHARED;
   req->dentry_unless = CEPH_CAP_FILE_EXCL;
+  req->set_alternate_name(std::move(alternate_name));
 
   mode |= S_IFDIR;
   bufferlist bl;
@@ -13055,7 +13132,7 @@ int Client::ll_mkdirx(Inode *parent, const char *name, mode_t mode, Inode **out,
 }
 
 int Client::_symlink(Inode *dir, const char *name, const char *target,
-		     const UserPerm& perms, InodeRef *inp)
+		     const UserPerm& perms, std::string alternate_name, InodeRef *inp)
 {
   ldout(cct, 8) << "_symlink(" << dir->ino << " " << name << ", " << target
 		<< ", uid " << perms.uid() << ", gid " << perms.gid() << ")"
@@ -13077,6 +13154,7 @@ int Client::_symlink(Inode *dir, const char *name, const char *target,
   dir->make_nosnap_relative_path(path);
   path.push_dentry(name);
   req->set_filepath(path);
+  req->set_alternate_name(std::move(alternate_name));
   req->set_inode(dir);
   req->set_string2(target); 
   req->dentry_drop = CEPH_CAP_FILE_SHARED;
@@ -13125,7 +13203,7 @@ int Client::ll_symlink(Inode *parent, const char *name, const char *value,
   }
 
   InodeRef in;
-  int r = _symlink(parent, name, value, perms, &in);
+  int r = _symlink(parent, name, value, perms, "", &in);
   if (r == 0) {
     fill_stat(in, attr);
     _ll_get(in.get());
@@ -13163,7 +13241,7 @@ int Client::ll_symlinkx(Inode *parent, const char *name, const char *value,
   }
 
   InodeRef in;
-  int r = _symlink(parent, name, value, perms, &in);
+  int r = _symlink(parent, name, value, perms, "", &in);
   if (r == 0) {
     fill_statx(in, statx_to_mask(flags, want), stx);
     _ll_get(in.get());
@@ -13325,7 +13403,7 @@ int Client::ll_rmdir(Inode *in, const char *name, const UserPerm& perms)
   return _rmdir(in, name, perms);
 }
 
-int Client::_rename(Inode *fromdir, const char *fromname, Inode *todir, const char *toname, const UserPerm& perm)
+int Client::_rename(Inode *fromdir, const char *fromname, Inode *todir, const char *toname, const UserPerm& perm, std::string alternate_name)
 {
   ldout(cct, 8) << "_rename(" << fromdir->ino << " " << fromname << " to "
 		<< todir->ino << " " << toname
@@ -13363,6 +13441,7 @@ int Client::_rename(Inode *fromdir, const char *fromname, Inode *todir, const ch
   to.push_dentry(toname);
   req->set_filepath(to);
   req->set_filepath2(from);
+  req->set_alternate_name(std::move(alternate_name));
 
   Dentry *oldde;
   int res = get_or_create(fromdir, fromname, &oldde);
@@ -13461,10 +13540,10 @@ int Client::ll_rename(Inode *parent, const char *name, Inode *newparent,
       return r;
   }
 
-  return _rename(parent, name, newparent, newname, perm);
+  return _rename(parent, name, newparent, newname, perm, "");
 }
 
-int Client::_link(Inode *in, Inode *dir, const char *newname, const UserPerm& perm, InodeRef *inp)
+int Client::_link(Inode *in, Inode *dir, const char *newname, const UserPerm& perm, std::string alternate_name, InodeRef *inp)
 {
   ldout(cct, 8) << "_link(" << in->ino << " to " << dir->ino << " " << newname
 		<< " uid " << perm.uid() << " gid " << perm.gid() << ")" << dendl;
@@ -13484,6 +13563,7 @@ int Client::_link(Inode *in, Inode *dir, const char *newname, const UserPerm& pe
 
   filepath path(newname, dir->ino);
   req->set_filepath(path);
+  req->set_alternate_name(std::move(alternate_name));
   filepath existing(in->ino);
   req->set_filepath2(existing);
 
@@ -13543,7 +13623,7 @@ int Client::ll_link(Inode *in, Inode *newparent, const char *newname,
       return r;
   }
 
-  return _link(in, newparent, newname, perm, &target);
+  return _link(in, newparent, newname, perm, "", &target);
 }
 
 int Client::ll_num_osds(void)
@@ -13771,7 +13851,7 @@ int Client::_ll_create(Inode *parent, const char *name, mode_t mode,
 	goto out;
     }
     r = _create(parent, name, flags, mode, in, fhp, 0, 0, 0, NULL, &created,
-		perms);
+		perms, "");
     if (r < 0)
       goto out;
   }

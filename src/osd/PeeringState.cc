@@ -3849,8 +3849,7 @@ out:
 }
 
 std::optional<pg_stat_t> PeeringState::prepare_stats_for_publish(
-  bool pg_stats_publish_valid,
-  const pg_stat_t &pg_stats_publish,
+  const std::optional<pg_stat_t> &pg_stats_publish,
   const object_stat_collection_t &unstable_stats)
 {
   if (info.stats.stats.sum.num_scrub_errors) {
@@ -3904,9 +3903,9 @@ std::optional<pg_stat_t> PeeringState::prepare_stats_for_publish(
   psdout(20) << __func__ << " reporting purged_snaps "
 	     << pre_publish.purged_snaps << dendl;
 
-  if (pg_stats_publish_valid && pre_publish == pg_stats_publish &&
+  if (pg_stats_publish && pre_publish == *pg_stats_publish &&
       info.stats.last_fresh > cutoff) {
-    psdout(15) << "publish_stats_to_osd " << pg_stats_publish.reported_epoch
+    psdout(15) << "publish_stats_to_osd " << pg_stats_publish->reported_epoch
 	       << ": no change since " << info.stats.last_fresh << dendl;
     return std::nullopt;
   } else {
@@ -3928,8 +3927,8 @@ std::optional<pg_stat_t> PeeringState::prepare_stats_for_publish(
     if ((info.stats.state & PG_STATE_UNDERSIZED) == 0)
       info.stats.last_fullsized = now;
 
-    psdout(15) << "publish_stats_to_osd " << pg_stats_publish.reported_epoch
-	       << ":" << pg_stats_publish.reported_seq << dendl;
+    psdout(15) << "publish_stats_to_osd " << pre_publish.reported_epoch
+	       << ":" << pre_publish.reported_seq << dendl;
     return std::make_optional(std::move(pre_publish));
   }
 }
@@ -6700,8 +6699,6 @@ PeeringState::Deleting::Deleting(my_context ctx)
   : my_base(ctx),
     NamedState(context< PeeringMachine >().state_history, "Started/ToDelete/Deleting")
 {
-  start = ceph::mono_clock::now();
-
   context< PeeringMachine >().log_enter(state_name);
 
   DECLARE_LOCALS;
@@ -6724,9 +6721,11 @@ boost::statechart::result PeeringState::Deleting::react(
   const DeleteSome& evt)
 {
   DECLARE_LOCALS;
-  next = pl->do_delete_work(context<PeeringMachine>().get_cur_transaction(),
+  std::pair<ghobject_t, bool> p;
+  p = pl->do_delete_work(context<PeeringMachine>().get_cur_transaction(),
     next);
-  return discard_event();
+  next = p.first;
+  return p.second ? discard_event() : terminate();
 }
 
 void PeeringState::Deleting::exit()
@@ -6735,9 +6734,6 @@ void PeeringState::Deleting::exit()
   DECLARE_LOCALS;
   ps->deleting = false;
   pl->cancel_local_background_io_reservation();
-  psdout(20) << "Deleting::" << __func__ << this <<" finished in "
-           << ceph::mono_clock::now() - start
-           << dendl;
 }
 
 /*--------GetInfo---------*/

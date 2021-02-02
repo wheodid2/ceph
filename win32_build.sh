@@ -55,6 +55,9 @@ ALLOCATOR=${ALLOCATOR:-libc}
 # can't close <file>: File too big
 # -Wa,-mbig-obj does not help.
 CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE:-RelWithDebInfo}
+# Some tests can't use shared libraries yet due to unspecified dependencies.
+# We'll do a static build by default for now.
+ENABLE_SHARED=${ENABLE_SHARED:-OFF}
 
 binDir="$BUILD_DIR/bin"
 strippedBinDir="$BUILD_DIR/bin_stripped"
@@ -136,7 +139,7 @@ cmake -D CMAKE_PREFIX_PATH=$depsDirs \
       -D WITH_LTTNG=OFF -D WITH_BABELTRACE=OFF \
       -D WITH_SYSTEM_BOOST=ON -D WITH_MGR=OFF -D WITH_KVS=OFF \
       -D WITH_LIBCEPHFS=OFF -D WITH_KRBD=OFF -D WITH_RADOSGW=OFF \
-      -D ENABLE_SHARED=OFF -D WITH_RBD=ON -D BUILD_GMOCK=ON \
+      -D ENABLE_SHARED=$ENABLE_SHARED -D WITH_RBD=ON -D BUILD_GMOCK=ON \
       -D WITH_CEPHFS=OFF -D WITH_MANPAGE=OFF \
       -D WITH_MGR_DASHBOARD_FRONTEND=OFF -D WITH_SYSTEMD=OFF -D WITH_TESTS=ON \
       -D LZ4_INCLUDE_DIR=$lz4Include -D LZ4_LIBRARY=$lz4Lib \
@@ -158,12 +161,16 @@ if [[ -z $SKIP_BUILD ]]; then
     # We're going to use an associative array having subdirectories as keys
     # and targets as values.
     declare -A make_targets
-    make_targets["src/tools"]="ceph-conf ceph_radosacl ceph_scratchtool rados"
+    make_targets["src/tools"]="ceph-conf rados"
     make_targets["src/tools/immutable_object_cache"]="all"
     make_targets["src/tools/rbd"]="all"
     make_targets["src/tools/rbd_wnbd"]="all"
     make_targets["src/compressor"]="all"
-    make_targets["src/test"]="all"
+
+    if [[ -z $SKIP_TESTS ]]; then
+      make_targets["src/tools"]+=" ceph_radosacl ceph_scratchtool"
+      make_targets["src/test"]="all"
+    fi
 
     for target_subdir in "${!make_targets[@]}"; do
       echo "Building $target_subdir: ${make_targets[$target_subdir]}" | tee -a "${BUILD_DIR}/build.log"
@@ -180,7 +187,8 @@ if [[ -z $SKIP_DLL_COPY ]]; then
         $sslDir/bin/libssl-1_1-x64.dll
         $mingwTargetLibDir/libstdc++-6.dll
         $mingwTargetLibDir/libgcc_s_seh-1.dll
-        $mingwLibpthreadDir/libwinpthread-1.dll)
+        $mingwLibpthreadDir/libwinpthread-1.dll
+        $boostDir/lib/*.dll)
     echo "Copying required dlls to $binDir."
     cp ${required_dlls[@]} $binDir
 fi

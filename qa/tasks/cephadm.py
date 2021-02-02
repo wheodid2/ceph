@@ -99,7 +99,7 @@ def download_cephadm(ctx, config, ref):
 
     if config.get('cephadm_mode') != 'cephadm-package':
         ref = config.get('cephadm_branch', ref)
-        git_url = teuth_config.get_ceph_git_url()
+        git_url = config.get('cephadm_git_url', teuth_config.get_ceph_git_url())
         log.info('Downloading cephadm (repo %s ref %s)...' % (git_url, ref))
         if git_url.startswith('https://github.com/'):
             # git archive doesn't like https:// URLs, which we use with github.
@@ -402,8 +402,9 @@ def ceph_bootstrap(ctx, config, registry):
             'sudo chmod 0600 /root/.ssh/authorized_keys')
 
         # set options
-        _shell(ctx, cluster_name, bootstrap_remote,
-               ['ceph', 'config', 'set', 'mgr', 'mgr/cephadm/allow_ptrace', 'true'])
+        if config.get('allow_ptrace', True):
+            _shell(ctx, cluster_name, bootstrap_remote,
+                   ['ceph', 'config', 'set', 'mgr', 'mgr/cephadm/allow_ptrace', 'true'])
 
         # add other hosts
         for remote in ctx.cluster.remotes.keys():

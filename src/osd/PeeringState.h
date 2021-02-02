@@ -377,8 +377,8 @@ public:
     /// Notification of removal complete, t must be populated to complete removal
     virtual void on_removal(ObjectStore::Transaction &t) = 0;
     /// Perform incremental removal work
-    virtual ghobject_t do_delete_work(ObjectStore::Transaction &t,
-      ghobject_t _next) = 0;
+    virtual std::pair<ghobject_t, bool> do_delete_work(
+      ObjectStore::Transaction &t, ghobject_t _next) = 0;
 
     // ======================= PG Merge =========================
     virtual void clear_ready_to_merge() = 0;
@@ -1244,7 +1244,6 @@ public:
       boost::statechart::transition<DeleteInterrupted, WaitDeleteReserved>
       > reactions;
     ghobject_t next;
-    ceph::mono_clock::time_point start;
     explicit Deleting(my_context ctx);
     boost::statechart::result react(const DeleteSome &evt);
     void exit();
@@ -1826,10 +1825,15 @@ public:
    *
    * Returns updated pg_stat_t if stats have changed since
    * pg_stats_publish adding in unstable_stats.
+   *
+   * @param pg_stats_publish the latest pg_stat possessed by caller
+   * @param unstable_stats additional stats which should be included in the
+   *        returned stats
+   * @return the up to date stats if it is different from the specfied
+   *         @c pg_stats_publish
    */
   std::optional<pg_stat_t> prepare_stats_for_publish(
-    bool pg_stats_publish_valid,
-    const pg_stat_t &pg_stats_publish,
+    const std::optional<pg_stat_t> &pg_stats_publish,
     const object_stat_collection_t &unstable_stats);
 
   /**

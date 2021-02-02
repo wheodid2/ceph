@@ -14,8 +14,9 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Optional
 
-from mgr_module import CLIWriteCommand, MgrModule, MgrStandbyModule, Option
+from mgr_module import CLIWriteCommand, MgrModule, MgrStandbyModule, Option, _get_localized_key
 from mgr_util import ServerConfigException, create_self_signed_cert, \
     get_default_addr, verify_tls_files
 
@@ -358,28 +359,30 @@ class Module(MgrModule, CherryPyConfig):
         logger.info('Stopping engine...')
         self.shutdown_event.set()
 
-    @CLIWriteCommand("dashboard set-ssl-certificate",
-                     "name=mgr_id,type=CephString,req=false")
-    def set_ssl_certificate(self, mgr_id=None, inbuf=None):
+    @CLIWriteCommand("dashboard set-ssl-certificate")
+    def set_ssl_certificate(self,
+                            mgr_id: Optional[str] = None,
+                            inbuf: Optional[bytes] = None):
         if inbuf is None:
             return -errno.EINVAL, '',\
                 'Please specify the certificate file with "-i" option'
         if mgr_id is not None:
-            self.set_store('{}/crt'.format(mgr_id), inbuf)
+            self.set_store(_get_localized_key(mgr_id, 'crt'), inbuf.decode())
         else:
-            self.set_store('crt', inbuf)
+            self.set_store('crt', inbuf.decode())
         return 0, 'SSL certificate updated', ''
 
-    @CLIWriteCommand("dashboard set-ssl-certificate-key",
-                     "name=mgr_id,type=CephString,req=false")
-    def set_ssl_certificate_key(self, mgr_id=None, inbuf=None):
+    @CLIWriteCommand("dashboard set-ssl-certificate-key")
+    def set_ssl_certificate_key(self,
+                                mgr_id: Optional[str] = None,
+                                inbuf: Optional[bytes] = None):
         if inbuf is None:
             return -errno.EINVAL, '',\
                 'Please specify the certificate key file with "-i" option'
         if mgr_id is not None:
-            self.set_store('{}/key'.format(mgr_id), inbuf)
+            self.set_store(_get_localized_key(mgr_id, 'key'), inbuf.decode())
         else:
-            self.set_store('key', inbuf)
+            self.set_store('key', inbuf.decode())
         return 0, 'SSL certificate key updated', ''
 
     def handle_command(self, inbuf, cmd):

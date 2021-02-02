@@ -847,7 +847,7 @@ COMMAND("osd unset "
 	"notieragent|nosnaptrim",
 	"unset <key>", "osd", "rw")
 COMMAND("osd require-osd-release "\
-	"name=release,type=CephChoices,strings=luminous|mimic|nautilus|octopus|pacific "
+	"name=release,type=CephChoices,strings=octopus|pacific|quincy "
         "name=yes_i_really_mean_it,type=CephBool,req=false",
 	"set the minimum allowed OSD release to participate in the cluster",
 	"osd", "rw")
@@ -1235,6 +1235,9 @@ COMMAND("config-key dump "
 /*
  * mon/MgrMonitor.cc
  */
+COMMAND("mgr stat",
+	"dump basic info about the mgr cluster state",
+	"mgr", "r")
 COMMAND("mgr dump "
 	"name=epoch,type=CephInt,range=0,req=false",
 	"dump the latest MgrMap",

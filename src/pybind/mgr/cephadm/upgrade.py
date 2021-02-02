@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional, Dict
 import orchestrator
 from cephadm.serve import CephadmServe
 from cephadm.utils import name_to_config_section, CEPH_UPGRADE_ORDER
-from orchestrator import OrchestratorError, DaemonDescription
+from orchestrator import OrchestratorError, DaemonDescription, daemon_type_to_service, service_to_daemon_types
 
 if TYPE_CHECKING:
     from .module import CephadmOrchestrator
@@ -172,12 +172,16 @@ class CephadmUpgrade:
 
     def _wait_for_ok_to_stop(self, s: DaemonDescription) -> bool:
         # only wait a little bit; the service might go away for something
+        assert s.daemon_type is not None
+        assert s.daemon_id is not None
         tries = 4
         while tries > 0:
             if not self.upgrade_state or self.upgrade_state.paused:
                 return False
 
-            r = self.mgr.cephadm_services[s.daemon_type].ok_to_stop([s.daemon_id])
+            # setting force flag to retain old functionality.
+            r = self.mgr.cephadm_services[daemon_type_to_service(s.daemon_type)].ok_to_stop([
+                s.daemon_id], force=True)
 
             if not r.retval:
                 logger.info(f'Upgrade: {r.stdout}')
@@ -287,6 +291,10 @@ class CephadmUpgrade:
                     daemon_type, d.daemon_id,
                     d.container_image_name, d.container_image_id, d.version))
 
+                assert d.daemon_type is not None
+                assert d.daemon_id is not None
+                assert d.hostname is not None
+
                 if self.mgr.daemon_is_self(d.daemon_type, d.daemon_id):
                     logger.info('Upgrade: Need to upgrade myself (mgr.%s)' %
                                 self.mgr.get_mgr_id())
@@ -294,13 +302,13 @@ class CephadmUpgrade:
                     continue
 
                 # make sure host has latest container image
-                out, err, code = CephadmServe(self.mgr)._run_cephadm(
+                out, errs, code = CephadmServe(self.mgr)._run_cephadm(
                     d.hostname, '', 'inspect-image', [],
                     image=target_image, no_fsid=True, error_ok=True)
                 if code or json.loads(''.join(out)).get('image_id') != target_id:
                     logger.info('Upgrade: Pulling %s on %s' % (target_image,
                                                                d.hostname))
-                    out, err, code = CephadmServe(self.mgr)._run_cephadm(
+                    out, errs, code = CephadmServe(self.mgr)._run_cephadm(
                         d.hostname, '', 'pull', [],
                         image=target_image, no_fsid=True, error_ok=True)
                     if code:
