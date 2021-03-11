@@ -306,11 +306,6 @@ public:
 
   /* multi MDS broadcast message */
   void broadcast_qos_info_update_to_mds(const VolumeId& vid, const dmclock_info_t &dmclock_info);
-  
-  /* #hong send the data */
-  void broadcast_from_ctrler_to_worker(const VolumeId& vid, const dmclock_info_t &dmclock_info);
-  void lonely_sending_to_ctrler(const VolumeId& vid, const dmclock_info_t &dmclock_info);
-
   void handle_qos_info_update_message(const MDSDmclockQoS::const_ref &m);
   void proc_message(const Message::const_ref &m);
   CInode* traverse_path_inode(const MDSDmclockQoS::const_ref &m);

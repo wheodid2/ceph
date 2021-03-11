@@ -365,37 +365,6 @@ void MDSDmclockScheduler::broadcast_qos_info_update_to_mds(const VolumeId& vid, 
   }
 }
 
-
-// #hong broadcast here
-void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(const VolumeId& vid, const dmclock_info_t &dmclock_info)
-{
-  dout(10) << __func__ << " (new)volume_id " << vid << " from " << mds->get_nodeid() << dendl;
-
-  std::set<mds_rank_t> actives;
-  mds->get_mds_map()->get_active_mds_set(actives);
-
-  for (auto it : actives) {
-    dout(10) << " send MDSDmclockQoS(new) message (" << vid  << ") to MDS" << it << dendl;
-    auto qos_msg = MDSDmclockQoS::create(mds->get_nodeid(), convert_subvol_root(vid),
-                                              dmclock_info, MDSDmclockQoS::REQUEST_TO_WRKR_SIM);
-    mds->send_message_mds(qos_msg, it);
-  }
-}
-
-// #hong send_dmclock_message_mds
-void MDSDmclockScheduler::lonely_sending_to_ctrler(const VolumeId& vid, const dmclock_info_t &dmclock_info)
-{
-  dout(10) << __func__ << " (new2)volume_id " << vid << " from " << mds->get_nodeid() << dendl;
-  
-  std::set<mds_rank_t> actives;
-  mds->get_mds_map()->get_active_mds_set(actives);
-
-  auto qos_msg = MDSDmclockQoS::create(mds->get_nodeid(), convert_subvol_root(vid),
-                                            dmclock_info, MDSDmclockQoS::REQUEST_TO_CTRL_SIM);
-  mds->send_message_mds(qos_msg,  *actives.begin());
-}
-
-
 CInode *MDSDmclockScheduler::traverse_path_inode(const MDSDmclockQoS::const_ref &m)
 {
   CF_MDS_RetryMessageFactory cf(mds, m);
@@ -428,25 +397,6 @@ void MDSDmclockScheduler::handle_qos_info_update_message(const MDSDmclockQoS::co
   assert(mds_is_locked_by_me());
 
   switch(m->get_sub_op()) {
-    case MDSDmclockQoS::REQUEST_TO_CTRL_SIM:
-    {
-      std::cout << "message_sub_op is REQUEST_TO_CTRL_SIM" << std::endl;
-      dmclock_info = m->get_dmclock_info();
-      if (dmclock_info.is_valid()) {
-        std::cout << "dmclock_info is valid" << std::endl;
-        return;
-      } else {
-        std::cout << "dmclock_info is NOT valid" << std::endl;
-      }
-      return;
-    }
-    case MDSDmclockQoS::REQUEST_TO_WRKR_SIM:
-    {
-      std::cout << "message_sub_op is REQUEST_TO_WRKR_SIM" << std::endl;
-      dmclock_info = m->get_dmclock_info();
-      lonely_sending_to_ctrler(m->get_volume_id(), dmclock_info);
-      return;
-    }
     case MDSDmclockQoS::REQUEST_TO_AUTH:
     {
       ceph_assert(mds->get_nodeid() != m->get_mds_from());
@@ -519,7 +469,6 @@ void MDSDmclockScheduler::handle_qos_info_update_message(const MDSDmclockQoS::co
   update_volume_info(m->get_volume_id(), info, use_default);
 }
 
-// #hong; add case MSG_MDS_DMCLOCK_SIM
 void MDSDmclockScheduler::proc_message(const Message::const_ref &m)
 {
   switch (m->get_type()) {

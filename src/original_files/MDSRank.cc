@@ -1267,14 +1267,6 @@ void MDSRank::handle_message(const Message::const_ref &m)
       mds_dmclock_scheduler->proc_message(m);
       break;
 
-    // #hong check this part
-    /*
-    case MSG_MDS_DMCLOCK_SIM:
-      ALLOW_MESSAGES_FROM(CEPH_ENTITY_TYPE_MDS);
-      mds_dmclock_scheduler->proc_message(m);
-      break;
-    */
-
     default:
       derr << "unrecognized message " << *m << dendl;
     }

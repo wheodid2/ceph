@@ -110,18 +110,12 @@ private:
   double cap_revoke_eviction_timeout = 0;
   uint64_t max_snaps_per_dir = 100;
 
-
-
   friend class MDSContinuation;
   friend class ServerContext;
   friend class ServerLogContext;
 
 public:
   bool terminating_sessions;
-  
-  // #hong
-  bool dmclock_thread_exist = false;
-  bool is_dmclock_ctrl = false;
 
   explicit Server(MDSRank *m);
   ~Server() {
@@ -190,9 +184,6 @@ public:
 
   // -- requests --
   void handle_client_request(const MClientRequest::const_ref &m);
-
-  // #hong handle_dmclock_request
-  void handle_dmclock_request(const MClientRequest::const_ref &m);
 
   void journal_and_reply(MDRequestRef& mdr, CInode *tracei, CDentry *tracedn,
 			 LogEvent *le, MDSLogContextBase *fin);
@@ -359,12 +350,6 @@ public:
 
   void evict_cap_revoke_non_responders();
   void handle_conf_change(const std::set<std::string>& changed);
-
-  /*=========================================================*/
-  // #hong dmclock func for communication btw ctrler and wrker
-  void make_dmclock_thread(mds_rank_t mrank);
-  void run_controller();
-  // void run_worker();
 
 
 private:

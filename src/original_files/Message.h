@@ -178,9 +178,6 @@
 #define MSG_MDS_HEARTBEAT          0x500  // for mds load balancer
 #define MSG_MDS_DMCLOCK_QOS        0x504  // for mds dmclock scheduler
 
-// *** #hong ***
-//#define MSG_MDS_DMCLOCK_SIM    0x510
-
 // *** generic ***
 #define MSG_TIMECHECK             0x600
 #define MSG_MON_HEALTH            0x601

@@ -198,72 +198,7 @@ Server::Server(MDSRank *m) :
   replay_unsafe_with_closed_session = g_conf().get_val<bool>("mds_replay_unsafe_with_closed_session");
   cap_revoke_eviction_timeout = g_conf().get_val<double>("mds_cap_revoke_eviction_timeout");
   supported_features = feature_bitset_t(CEPHFS_FEATURES_MDS_SUPPORTED);
-  
-  // #hong
-  dout(4) << "(Hong)MDSRank " << mds->get_nodeid() << dendl;
-  make_dmclock_thread(mds->get_nodeid());
 }
-
-
-// #hong
-void Server::make_dmclock_thread(mds_rank_t mrank)
-{
-  if (!dmclock_thread_exist) {
-    dmclock_thread_exist = true;
-  } else {
-    dout(3) << "dmclock_thread_exist is already true; return()" << dendl;
-    //std::cout << "dmclock_thread_exist is already true; return()" << std:endl;
-    return;
-  }
-  if (mrank < 1) {
-    //std::cout << "mds_rank < 1" << std:endl;
-    is_dmclock_ctrl = true;
-    dout(3) << "mds_rank < 1" << dendl;
-    int pass_val = 1;
-    std::thread ctrl_thd(&Server::run_controller, this);
-    ctrl_thd.detach();
-  } else {
-    //maybe this worker thread isn't necessary??? Nope!?!
-    //std::cout << "mds_rank < 1" < < std:endl;
-    dout(3) << "mds_rank >= 1" << dendl;
-    /*
-    std::thread work_thd(run_worker);
-    work_thd.detach();
-    */
-  }
-}
-
-void Server::run_controller()
-{ 
-  while(1){
-    std::this_thread::sleep_for(std::chrono::seconds(5));
-    if (1) {  
-      std::string path = "";   //??
-      mds->mds_dmclock_scheduler->broadcast_from_ctrler_to_worker(path, dmclock_info_t());
-    } else {
-      ;
-    }
-  }
-}
-
-/*
-void Server::run_worker()
-{
-  while(1){
-    std::this_thread::sleep_for(std::chrono::seconds(5));
-    if (1) {  
-      std::string path = "";  // ??
-      mds->mds_dmclock_scheduler->lonely_sending_to_ctrler(path, dmclock_info_t());
-    } else {
-      ;
-    }
-  }
-  //send create.....
-}
-*/
-
-//==========================
-
 
 void Server::dispatch(const Message::const_ref &m)
 {
@@ -348,42 +283,11 @@ void Server::dispatch(const Message::const_ref &m)
   case MSG_MDS_SLAVE_REQUEST:
     handle_slave_request(MMDSSlaveRequest::msgref_cast(m));
     return;
-  
   default:
     derr << "server unknown message " << m->get_type() << dendl;
     ceph_abort_msg("server unknown message");  
   }
 }
-
-
-// #hong  ------please change this function to 
-void Server::handle_dmclock_request(const MClientRequest::const_ref &req)
-{
-  dout(4) << "handle_dmclock_request " << req->get_reqid() << " from " << req->get_source() << dendl;
-  mds_rank_t from = mds_rank_t(req->get_source().num());
-
-  bool sessionclosed_isok = replay_unsafe_with_closed_session;
-  // active session?
-  Session *session = 0;
-  if (req->get_source().is_client()) {
-    session = mds->get_session(req);
-    if (!session) {
-      dout(5) << "no session for " << req->get_source() << ", dropping" << dendl;
-    } else if ((session->is_closed() && (!mds->is_clientreplay() || !sessionclosed_isok)) ||
-	       session->is_closing() ||
-	       session->is_killing()) {
-      dout(5) << "session closed|closing|killing, dropping" << dendl;
-      session = NULL;
-    }
-    if (!session) {
-      if (req->is_queued_for_replay())
-	mds->queue_one_replay();
-      return;
-    }
-  }
-
-  return;
-} // #hong -------end of the function
 
 
 
@@ -4654,7 +4558,6 @@ public:
     if (changed_ranges)
       get_mds()->locker->share_inode_max_size(in);
 
-    // #hong
     if (update_dmclock) {
       string path;
       in->make_path_string(path, true);
@@ -4675,7 +4578,6 @@ public:
       }
 
       mds->mds_dmclock_scheduler->broadcast_qos_info_update_to_mds(path, in->get_projected_inode()->dmclock_info);
-      
     }
   }
 };

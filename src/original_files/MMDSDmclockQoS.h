@@ -14,9 +14,7 @@ public:
   enum {
     REQUEST_TO_AUTH,
     BROADCAST_TO_ALL,
-    PATH_TRAVERSE,
-    REQUEST_TO_CTRL_SIM,
-    REQUEST_TO_WRKR_SIM
+    PATH_TRAVERSE
   };
 
   const char *get_sub_op_str() const {
@@ -24,8 +22,6 @@ public:
       case REQUEST_TO_AUTH: return "REQUEST_TO_AUTH";
       case BROADCAST_TO_ALL: return "BROADCAST_TO_ALL";
       case PATH_TRAVERSE: return "PATH_TRAVERSE";
-      case REQUEST_TO_CTRL_SIM: return "REQUEST_TO_CTRL_SIM";
-      case REQUEST_TO_WRKR_SIM: return "REQUEST_TO_WRKR_SIM";
       default: return "UKNOWN SUB OP";
     }
   }
