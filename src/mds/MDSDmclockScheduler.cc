@@ -369,7 +369,7 @@ void MDSDmclockScheduler::broadcast_qos_info_update_to_mds(const VolumeId& vid, 
 // #hong broadcast here
 void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(const VolumeId& vid, const dmclock_info_t &dmclock_info)
 {
-  dout(17) << __func__ << " (hong)volume_id " << vid << " from " << mds->get_nodeid() << dendl;
+  dout(17) << __func__ << " KAIST;volume_id " << vid << " from " << mds->get_nodeid() << dendl;
 
   std::set<mds_rank_t> actives;
   mds->get_mds_map()->get_active_mds_set(actives);
@@ -378,7 +378,7 @@ void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(const VolumeId& vid, c
     if ( it == 0){
       continue;
     }
-    dout(17) << " send MDSDmclockQoS(hong) message (" << vid  << ") to MDS " << it << dendl;
+    dout(17) << " KAIST;send MDSDmclockQoS message (" << vid  << ") to MDS " << it << dendl;
     auto qos_msg = MDSDmclockQoS::create(mds->get_nodeid(), convert_subvol_root(vid),
                                               dmclock_info, MDSDmclockQoS::REQUEST_TO_WRKR_SIM);
     mds->send_message_mds(qos_msg, it);
@@ -388,7 +388,7 @@ void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(const VolumeId& vid, c
 // #hong send_dmclock_message_mds
 void MDSDmclockScheduler::lonely_sending_to_ctrler(const VolumeId& vid, const dmclock_info_t &dmclock_info)
 {
-  dout(18) << __func__ << " (hong2)volume_id " << vid << " from " << mds->get_nodeid() << dendl;
+  dout(18) << __func__ << " KAIST;volume_id " << vid << " from " << mds->get_nodeid() << dendl;
   
   std::set<mds_rank_t> actives;
   mds->get_mds_map()->get_active_mds_set(actives);
@@ -433,19 +433,19 @@ void MDSDmclockScheduler::handle_qos_info_update_message(const MDSDmclockQoS::co
   switch(m->get_sub_op()) {
     case MDSDmclockQoS::REQUEST_TO_CTRL_SIM:
     {
-      std::cout << "message_sub_op is REQUEST_TO_CTRL_SIM" << std::endl;
+      dout(17) << "KAIST;message_sub_op is REQUEST_TO_CTRL_SIM" << dendl;
       dmclock_info = m->get_dmclock_info();
       if (dmclock_info.is_valid()) {
-        std::cout << "dmclock_info is valid" << std::endl;
+        dout(17) << "KAIST;dmclock_info is valid" << dendl;
         return;
       } else {
-        std::cout << "dmclock_info is NOT valid" << std::endl;
+        dout(17) << "KAIST;dmclock_info is NOT valid" << dendl;
       }
       return;
     }
     case MDSDmclockQoS::REQUEST_TO_WRKR_SIM:
     {
-      std::cout << "message_sub_op is REQUEST_TO_WRKR_SIM" << std::endl;
+      dout(18) << "KAIST;message_sub_op is REQUEST_TO_WRKR_SIM" << dendl;
       dmclock_info = m->get_dmclock_info();
       lonely_sending_to_ctrler(m->get_volume_id(), dmclock_info);
       return;
