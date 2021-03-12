@@ -200,7 +200,7 @@ Server::Server(MDSRank *m) :
   supported_features = feature_bitset_t(CEPHFS_FEATURES_MDS_SUPPORTED);
   
   // #hong
-  dout(4) << "(Hong)MDSRank " << mds->get_nodeid() << dendl;
+  dout(13) << "(Hong)MDSRank " << mds->get_nodeid() << dendl;
   make_dmclock_thread(mds->get_nodeid());
 }
 
@@ -211,21 +211,21 @@ void Server::make_dmclock_thread(mds_rank_t mrank)
   if (!dmclock_thread_exist) {
     dmclock_thread_exist = true;
   } else {
-    dout(3) << "dmclock_thread_exist is already true; return()" << dendl;
+    dout(13) << "dmclock_thread_exist is already true; return()" << dendl;
     //std::cout << "dmclock_thread_exist is already true; return()" << std:endl;
     return;
   }
   if (mrank < 1) {
     //std::cout << "mds_rank < 1" << std:endl;
     is_dmclock_ctrl = true;
-    dout(3) << "mds_rank < 1" << dendl;
+    dout(13) << "mds_rank < 1" << dendl;
     int pass_val = 1;
     std::thread ctrl_thd(&Server::run_controller, this);
     ctrl_thd.detach();
   } else {
     //maybe this worker thread isn't necessary??? Nope!?!
     //std::cout << "mds_rank < 1" < < std:endl;
-    dout(3) << "mds_rank >= 1" << dendl;
+    dout(13) << "mds_rank >= 1" << dendl;
     /*
     std::thread work_thd(run_worker);
     work_thd.detach();
@@ -237,6 +237,7 @@ void Server::run_controller()
 { 
   while(1){
     std::this_thread::sleep_for(std::chrono::seconds(5));
+    dout(13) << "slept 5 sec" << dendl;
     if (1) {  
       std::string path = "";   //??
       mds->mds_dmclock_scheduler->broadcast_from_ctrler_to_worker(path, dmclock_info_t());
