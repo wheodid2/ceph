@@ -177,6 +177,7 @@
 
 #define MSG_MDS_HEARTBEAT          0x500  // for mds load balancer
 #define MSG_MDS_DMCLOCK_QOS        0x504  // for mds dmclock scheduler
+#define MSG_MDS_CONTROLLER_QOS     0x505  // for mds qos controller
 
 // *** generic ***
 #define MSG_TIMECHECK             0x600

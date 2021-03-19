@@ -1177,6 +1177,7 @@ bool MDSRank::is_valid_message(const Message::const_ref &m) {
       type == MSG_MDS_LOCK ||
       type == MSG_MDS_INODEFILECAPS ||
       type == MSG_MDS_DMCLOCK_QOS ||
+      type == MSG_MDS_CONTROLLER_QOS ||
       type == CEPH_MSG_CLIENT_CAPS ||
       type == CEPH_MSG_CLIENT_CAPRELEASE ||
       type == CEPH_MSG_CLIENT_LEASE) {
@@ -1263,6 +1264,7 @@ void MDSRank::handle_message(const Message::const_ref &m)
       break;
 
     case MSG_MDS_DMCLOCK_QOS:
+    case MSG_MDS_CONTROLLER_QOS:
       ALLOW_MESSAGES_FROM(CEPH_ENTITY_TYPE_MDS);
       mds_dmclock_scheduler->proc_message(m);
       break;

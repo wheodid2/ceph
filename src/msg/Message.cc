@@ -167,6 +167,7 @@
 
 #include "messages/MHeartbeat.h"
 #include "messages/MMDSDmclockQoS.h"
+#include "messages/MMDSControllerQoS.h"
 
 #include "messages/MMDSTableRequest.h"
 
@@ -798,6 +799,10 @@ Message *decode_message(CephContext *cct, int crcflags,
 
   case MSG_MDS_DMCLOCK_QOS:
     m = MDSDmclockQoS::create();
+    break;
+  
+  case MSG_MDS_CONTROLLER_QOS:
+    m = MMDSControllerQoS::create();
     break;
 
   case MSG_MGR_BEACON:

@@ -21,8 +21,10 @@
 #include <map>
 #include <mutex>
 #include <deque>
+#include <vector>
 
 #include "include/types.h"
+#include "include/utime.h"
 #include "mdstypes.h"
 
 #include "MDSRank.h"
@@ -30,9 +32,13 @@
 #include "messages/MClientRequest.h"
 #include "messages/MClientSession.h"
 #include "messages/MMDSDmclockQoS.h"
+#include "messages/MMDSControllerQoS.h"
 #include "msg/Messenger.h"
 #include "dmclock/src/dmclock_server.h"
 #include "CInode.h"
+
+#include "common/Cond.h"
+#include "common/Mutex.h"
 
 class ClientRequest;
 
@@ -45,6 +51,8 @@ using Time = double;
 using ClientId = std::string;
 using VolumeId = ClientId;
 using SessionId = std::string;
+using VolumeCnt = double;
+using GVF = double;
 
 using Queue = crimson::dmclock::PushPriorityQueue<VolumeId, ClientRequest>;
 
@@ -158,10 +166,12 @@ private:
   bool use_default;
   std::set<SessionId> session_list;
   int inflight_requests;
+  VolumeCnt volume_count;
+  GVF global_view_factor;
 
 public:
   explicit VolumeInfo():
-    QoSInfo(0.0, 0.0, 0.0), use_default(true), inflight_requests(0)  {};
+    QoSInfo(0.0, 0.0, 0.0), use_default(true), inflight_requests(0), volume_count(0.0), global_view_factor(0.0)  {};
 
   int32_t get_session_cnt() const
   {
@@ -211,6 +221,31 @@ public:
   void decrease_inflight_request()
   {
     inflight_requests--;
+  }
+
+  VolumeCnt get_volume_count() const
+  {
+    return volume_count;
+  }
+
+  void increase_volume_count()
+  {
+    volume_count++;
+  }
+
+  void reset_volume_count()
+  {
+    volume_count = 0.0;
+  }
+
+  void set_global_view_factor(const GVF &gvf)
+  {
+    global_view_factor = gvf;
+  }
+  
+  GVF get_global_view_factor() const
+  {
+    return global_view_factor;
   }
 
   void dump(Formatter *f, const std::string &vid) const
@@ -278,6 +313,17 @@ private:
   std::map<VolumeId, VolumeInfo> volume_info_map;
   mutable std::mutex volume_info_lock;
 
+  //std::map<VolumeId, std::vector<VolumeCnt>> volume_reqnum_map;
+  //mutable std::mutex volume_reqnum_lock;
+
+  Mutex controller_lock;
+  Cond controller_cond;
+  bool controller_stop;
+
+  //Mutex qos_worker_lock;
+  //Cond qos_worker_cond;
+  //bool qos_worker_stop;
+
 public:
   static constexpr uint32_t SUBVOL_ROOT_DEPTH = 3;
 
@@ -306,7 +352,14 @@ public:
 
   /* multi MDS broadcast message */
   void broadcast_qos_info_update_to_mds(const VolumeId& vid, const dmclock_info_t &dmclock_info);
+
+  /* #hong send the data */
+  void broadcast_to_worker_for_volume_cnt();
+  void broadcast_from_ctrler_to_worker(std::map<mds_rank_t,std::map<VolumeId,GVF>> gvf_map_per_mds);
+  void lonely_sending_to_ctrler(const std::map<VolumeId, VolumeCnt>& volcnt_map);
+
   void handle_qos_info_update_message(const MDSDmclockQoS::const_ref &m);
+  void handle_controller_qos_message(const MMDSControllerQoS::const_ref &m);
   void proc_message(const Message::const_ref &m);
   CInode* traverse_path_inode(const MDSDmclockQoS::const_ref &m);
 
@@ -325,16 +378,29 @@ public:
 
   /* request event handler */
   void begin_schedule_thread();
+  void begin_controller_thread();
+  //void begin_qos_worker_thread();
   void process_request();
   void process_request_handler();
+  void process_controller();
+  void process_controller_handler();
+  //void process_qos_worker();
+  //void process_qos_worker_handler();
   std::thread scheduler_thread;
+  std::thread controller_thread;
+  //std::thread qos_worker_thread;
   mutable std::mutex queue_mutex;
+  mutable std::mutex volcnt_queue_mutex;
   std::condition_variable queue_cvar;
+  std::condition_variable volcnt_queue_cvar;
 
   std::deque<std::unique_ptr<Request>> request_queue;
   void enqueue_update_request(const VolumeId& vid);
   void enqueue_update_request(const VolumeId& vid, RequestCB cb_func);
   uint32_t get_request_queue_size() const;
+ 
+  int active_mds_num;
+  std::deque<std::pair<mds_rank_t,std::map<VolumeId,VolumeCnt>>> volcnt_queue;
 
   const VolumeId get_volume_id(Session *session);
   const SessionId get_session_id(Session *session);
@@ -349,7 +415,9 @@ public:
 
   MDSDmclockScheduler(MDSRank *m, const Queue::ClientInfoFunc _client_info_func,
       const Queue::CanHandleRequestFunc _can_handle_func,
-      const Queue::HandleRequestFunc _handle_request_func) : mds(m)
+      const Queue::HandleRequestFunc _handle_request_func) : mds(m),
+      controller_lock("MDSDmclockScheduler::controller_lock")
+      //qos_worker_lock("MDSDmclockScheduler::qos_worker_lock")
   {
     if (_client_info_func) {
       client_info_func = _client_info_func;
@@ -378,6 +446,11 @@ public:
     total_inflight_requests = 0;
 
     begin_schedule_thread();
+
+    controller_stop = false;
+    //qos_worker_stop = false;
+    //begin_controller_thread();
+    //begin_qos_worker_thread();
 
     default_conf.set_reservation(g_conf().get_val<double>("mds_dmclock_reservation"));
     default_conf.set_weight(g_conf().get_val<double>("mds_dmclock_weight"));
@@ -410,6 +483,13 @@ public:
   void increase_inflight_request(const VolumeId &vid);
   void decrease_inflight_request(const VolumeId &vid);
   int get_inflight_request(const VolumeId &vid);
+
+  void increase_volume_count(const VolumeId &vid);
+  void reset_volume_count(const VolumeId &vid);
+  VolumeCnt get_volume_count(const VolumeId &vid);
+
+  void set_global_view_factor(const VolumeId &vid, const GVF &gvf);
+  GVF get_global_view_factor(const VolumeId &vid);
 
   void shutdown();
   friend ostream& operator<<(ostream& os, const VolumeInfo* vi);

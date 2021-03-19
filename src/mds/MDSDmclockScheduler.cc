@@ -82,6 +82,7 @@ void MDSDmclockScheduler::handle_mds_request(const MDSReqRef &mds_req)
   if (mds->mds_dmclock_scheduler->default_conf.is_enabled() == true
       && mds_req->get_orig_source().is_client()) {
     auto volume_id = get_volume_id(mds->get_session(mds_req));
+    increase_volume_count(volume_id);
     enqueue_client_request<MDSReqRef>(mds_req, volume_id);
   } else {
     mds->server->handle_client_request(mds_req);
@@ -238,6 +239,46 @@ int MDSDmclockScheduler::get_inflight_request(const VolumeId &vid)
   return vi->get_inflight_request();
 }
 
+void MDSDmclockScheduler::increase_volume_count(const VolumeId &vid)
+{
+  std::lock_guard lock(volume_info_lock);
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  vi->increase_volume_count();
+}
+
+void MDSDmclockScheduler::reset_volume_count(const VolumeId &vid)
+{
+  std::lock_guard lock(volume_info_lock);
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  vi->reset_volume_count();
+}
+
+VolumeCnt MDSDmclockScheduler::get_volume_count(const VolumeId &vid)
+{
+  std::lock_guard lock(volume_info_lock);
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  return vi->get_volume_count();
+}
+
+void MDSDmclockScheduler::set_global_view_factor(const VolumeId &vid, const GVF &gvf)
+{
+  std::lock_guard lock(volume_info_lock);
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  vi->set_global_view_factor(gvf);
+}
+
+GVF MDSDmclockScheduler::get_global_view_factor(const VolumeId &vid)
+{
+  std::lock_guard lock(volume_info_lock);
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  return vi->get_global_view_factor();
+}
+
 void MDSDmclockScheduler::create_volume_info(const VolumeId &vid, const ClientInfo &client_info,
                                               const bool use_default)
 {
@@ -365,6 +406,61 @@ void MDSDmclockScheduler::broadcast_qos_info_update_to_mds(const VolumeId& vid, 
   }
 }
 
+
+
+void MDSDmclockScheduler::broadcast_to_worker_for_volume_cnt()
+{
+  dout(10) << __func__ << " from MDS Rank" << mds->get_nodeid() << dendl;
+
+  std::set<mds_rank_t> actives;
+  mds->get_mds_map()->get_active_mds_set(actives);
+  active_mds_num = 0;
+
+  std::map<VolumeId,GVF> empty_arg;
+
+  for (auto it : actives) {
+    active_mds_num++;
+    dout(10) << " send MMDSControllerQoS(new) message to MDS" << it << dendl;
+    auto start_controller_msg = MMDSControllerQoS::create(mds->get_nodeid(), empty_arg, MMDSControllerQoS::REQUEST_VCNT_TO_WRKR);
+    mds->send_message_mds(start_controller_msg, it);
+  }
+}
+
+// #hong broadcast here
+void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(std::map<mds_rank_t,std::map<VolumeId,GVF>> gvf_map_per_mds)
+{
+  dout(10) << __func__ << " from MDS Rank" << mds->get_nodeid() << dendl;
+
+  std::map<VolumeId,GVF> gvf_map;
+  std::set<mds_rank_t> actives;
+  mds->get_mds_map()->get_active_mds_set(actives);
+  active_mds_num = 0;
+
+  for (auto it : actives) {
+    if (gvf_map_per_mds.find(it) == gvf_map_per_mds.end()) {
+      dout(10) << "MDS " << it << " is not active now" << dendl;
+    }
+    else {  
+      dout(10) << " send MMDSControllerQoS(new) message to MDS" << it << dendl;
+      gvf_map = gvf_map_per_mds[it];
+      auto controller_qos_msg = MMDSControllerQoS::create(mds->get_nodeid(), gvf_map, MMDSControllerQoS::REQUEST_TO_WRKR_SIM);
+      mds->send_message_mds(controller_qos_msg, it);
+    }
+  }
+}
+
+// #hong send_dmclock_message_mds
+void MDSDmclockScheduler::lonely_sending_to_ctrler(const std::map<VolumeId, VolumeCnt>& volcnt_map)
+{
+  dout(10) << __func__ << " from MDS Rank" << mds->get_nodeid() << dendl;
+
+  std::set<mds_rank_t> actives;
+  mds->get_mds_map()->get_active_mds_set(actives);
+
+  auto qos_msg = MMDSControllerQoS::create(mds->get_nodeid(), volcnt_map, MMDSControllerQoS::REQUEST_TO_CTRL_SIM);
+  mds->send_message_mds(qos_msg,  *actives.begin());
+}
+
 CInode *MDSDmclockScheduler::traverse_path_inode(const MDSDmclockQoS::const_ref &m)
 {
   CF_MDS_RetryMessageFactory cf(mds, m);
@@ -469,11 +565,81 @@ void MDSDmclockScheduler::handle_qos_info_update_message(const MDSDmclockQoS::co
   update_volume_info(m->get_volume_id(), info, use_default);
 }
 
+void MDSDmclockScheduler::handle_controller_qos_message(const MMDSControllerQoS::const_ref &m)
+{
+  dout(10) << __func__ << " message " << m->get_sub_op_str() << " from " << m->get_mds_from() << dendl;
+
+  assert(mds_is_locked_by_me());
+
+  switch(m->get_sub_op()) {
+    case MMDSControllerQoS::REQUEST_VCNT_TO_WRKR:
+    {
+      dout(10) << "message_sub_op is REQUEST_VCNT_TO_WRKR" << dendl;
+
+      // Make map<VolumeId, VolumeCnt>
+      std::map<VolumeId, VolumeCnt> volcnt_map;
+
+      for (auto it = volume_info_map.begin(); it != volume_info_map.end(); it++) {
+	auto vol_info = it->second;
+	if (vol_info.get_volume_count() != 0) {
+	  auto ret = volcnt_map.insert(std::make_pair(it->first, vol_info.get_volume_count()));
+	  dout(10) << "VolumeId: " << it->first << ", before reset VolumeCnt: " << vol_info.get_volume_count() << dendl;
+	  if (ret.second == true) {
+	    reset_volume_count(it->first);
+	    dout(10) << "VolumeId: " << it->first << ", after reset VolumeCnt: " << vol_info.get_volume_count() << dendl;
+	  }
+	  else {
+	    dout(10) << "volcnt_map insert fail" << dendl;
+	  }
+	}
+	else {
+	  dout(10) << "VolumeId: " << it->first << ", VolumeCnt is zero" << dendl;
+	}
+      }
+      lonely_sending_to_ctrler(volcnt_map);
+      return;
+    }
+    case MMDSControllerQoS::REQUEST_TO_CTRL_SIM:
+    {
+      dout(10) << "message_sub_op is REQUEST_TO_CTRL_SIM" << dendl;
+
+      // Enqueue map<VolumeId, VolumeCnt> per MDS to volcnt_queue
+      std::unique_lock<std::mutex> lock(volcnt_queue_mutex);
+
+      volcnt_queue.push_back(std::make_pair(m->get_mds_from(), std::move(m->get_gvf_map())));
+      lock.unlock();
+      volcnt_queue_cvar.notify_all();
+      return;
+    }
+    case MMDSControllerQoS::REQUEST_TO_WRKR_SIM:
+    {
+      dout(10) << "message_sub_op is REQUEST_TO_WRKR_SIM" << dendl;
+      
+      std::map<VolumeId, GVF> gvf_map;
+
+      gvf_map = m->get_gvf_map();
+      // Update gvf values of all volumes.
+      for (auto it = gvf_map.begin(); it != gvf_map.end(); it++) {
+	dout(10) << "VolumeId: " << it->first << ", gvf: " << it->second << dendl;
+	set_global_view_factor(it->first, it->second);
+      }
+      return;
+    }
+    default:
+      dout(0) << __func__ << " unkown message type " << m->get_sub_op() << dendl;
+      ceph_abort();
+  }
+}
+
+// #hong; add case MSG_MDS_DMCLOCK_SIM
 void MDSDmclockScheduler::proc_message(const Message::const_ref &m)
 {
   switch (m->get_type()) {
     case MSG_MDS_DMCLOCK_QOS:
       handle_qos_info_update_message(MDSDmclockQoS::msgref_cast(m));
+      break;
+    case MSG_MDS_CONTROLLER_QOS:
+      handle_controller_qos_message(MMDSControllerQoS::msgref_cast(m));
       break;
   default:
     derr << " dmClock QoS unknown message " << m->get_type() << dendl_impl;
@@ -529,6 +695,7 @@ void MDSDmclockScheduler::process_request_handler()
       case RequestType::CLIENT_REQUEST:
       {
         std::unique_ptr<ClientRequest> c_request(static_cast<ClientRequest *>(request.release()));
+	double gvf = get_global_view_factor(c_request->get_volume_id());
 
         dout(10) << " Process client request (queue size " << request_queue.size()
                 << " volume_id " << c_request->get_volume_id()
@@ -537,8 +704,12 @@ void MDSDmclockScheduler::process_request_handler()
 
         increase_inflight_request(c_request->get_volume_id());
 
+	dout(10) << "VolumeId: " << c_request->get_volume_id() << ", VolumeCnt: " << get_volume_count(c_request->get_volume_id()) << ", GVF: " << gvf << dendl;
+	if (gvf == 0)
+	  gvf = 1;
+
         dmclock_queue->add_request(std::move(c_request), std::move(c_request->get_volume_id()),
-            {0, 0}, c_request->time, c_request->cost);
+            {gvf-1, gvf-1}, c_request->time, c_request->cost);
 
         break;
       }
@@ -575,6 +746,159 @@ void MDSDmclockScheduler::begin_schedule_thread()
 {
   scheduler_thread = std::thread([this](){process_request();});
 }
+
+void MDSDmclockScheduler::process_controller_handler()
+{
+  std::lock_guard l(controller_lock);
+
+  // 1. Periodic action
+  while (!controller_stop) {
+    std::map<std::string,std::map<mds_rank_t,VolumeCnt>> gv_map;
+    std::vector<mds_rank_t> mds_id;
+    std::map<std::string,VolumeCnt> tot_map;
+    std::map<mds_rank_t,std::map<VolumeId,GVF>> gvf_map_per_mds;
+    int received_mds_num = 0;
+
+    broadcast_to_worker_for_volume_cnt();
+
+    while (received_mds_num != active_mds_num) {
+      dout(10) << __func__ << "Received MDS num: " << received_mds_num << ", Active MDS num: " << active_mds_num << ", volcnt_queue.size(): " << volcnt_queue.size() << dendl;
+      std::unique_lock<std::mutex> lock(volcnt_queue_mutex);
+      volcnt_queue_cvar.wait(lock);
+
+      while (volcnt_queue.size()) {
+	received_mds_num++;
+	dout(10) << "received_mds_num: " << received_mds_num << ", volcnt_queue.size(): " << volcnt_queue.size() << dendl;
+        std::pair<mds_rank_t,std::map<VolumeId,VolumeCnt>> p = std::move(volcnt_queue.front());
+        volcnt_queue.erase(volcnt_queue.begin());
+
+	lock.unlock();
+
+        // 1. Make global view map
+	mds_id.emplace_back(p.first);
+	for (auto it = p.second.begin(); it != p.second.end(); it++) {
+	  if (gv_map.find(it->first) == gv_map.end()) {
+	    std::map<mds_rank_t,VolumeCnt> temp_m;
+	    temp_m.insert(std::make_pair(p.first, it->second));
+	    auto ret = gv_map.insert(std::make_pair(it->first, temp_m));
+	    dout(10) << "GV_map.insert MDS#: " << p.first << ", VolumeId: " << it->first << ", cnt: " << it->second << dendl;
+	    if (ret.second == false)
+	      dout(10) << "GVF map insert fail from find false" << dendl;
+	  }
+	  else {
+	    auto ret = gv_map[it->first].insert(std::make_pair(p.first, it->second));
+	    if (ret.second == false)
+	      dout(10) << "GVF map insert fail from find true" << dendl;
+	  }
+	}
+        lock.lock();
+      }
+    }
+
+    // 2. Calculate total volume count for each volume
+    for (auto it = gv_map.begin(); it != gv_map.end(); it++) {
+      double tot = 0;
+      for (auto vit = it->second.begin(); vit != it->second.end(); vit++) {
+	tot +=  vit->second;
+      }
+      auto ret = tot_map.insert(std::make_pair(it->first, tot));
+      if (ret.second == false)
+	dout(10) << "tot_map insert fail" << dendl;
+    }
+ 
+    // 3. Calculate Global View Factor per each volume per each MDS
+    for (int i = 0; i < active_mds_num; i++) {
+      std::map<VolumeId,GVF> temp_gvf_map;
+      for (auto it = gv_map.begin(); it != gv_map.end(); it++) {
+	if (it->second.find(mds_id[i]) != it->second.end()) {
+	  dout(10) << "MDS#: " << mds_id[i] << ", VolumeId: " << it->first << ", tot: " << tot_map[it->first] << ", cnt: " << it->second[mds_id[i]] << ", gvf: " << (double) tot_map[it->first]/it->second[mds_id[i]] << dendl;
+	  auto ret = temp_gvf_map.insert(std::make_pair(it->first, (double) tot_map[it->first]/it->second[mds_id[i]]));
+	  if (ret.second == false)
+	    dout(10) << "temp_gvf_map insert fail" << dendl;
+	}
+      }
+      auto ret = gvf_map_per_mds.insert(std::make_pair(mds_id[i], temp_gvf_map));
+      if (ret.second == false)
+        dout(10) << "gvf_map_per_mds insert fail" << dendl;
+    }
+
+    broadcast_from_ctrler_to_worker(gvf_map_per_mds);
+
+    double period = 5.0;
+    utime_t w;
+    w.set_from_double(period);
+    dout(10) << "Controller thread sleeping for " << period << dendl;
+    controller_cond.WaitInterval(controller_lock, w);
+    dout(10) << "Controller thread woke up" << dendl;
+  }
+}
+
+void MDSDmclockScheduler::process_controller()
+{
+  dout(10) << __func__ << " thread has been invoked" << dendl;
+  while (state == SchedulerState::RUNNING) {
+    process_controller_handler();
+  }
+  dout(10) << __func__ << " thread has been joined" << dendl;
+}
+
+void MDSDmclockScheduler::begin_controller_thread()
+{
+  if (mds->get_nodeid() == 0) {
+    dout(10) << __func__ << " from " << mds->get_nodeid() << dendl;
+    controller_thread = std::thread([this](){process_controller();});
+  }
+}
+
+/*
+void MDSDmclockScheduler::process_qos_worker_handler()
+{
+  while (true) {
+    {
+      std::lock_guard<std::mutex> lock(volume_info_lock);
+      for (auto it : volume_info_map) {
+	dout(10) << __func__ << ": VolumeId " << it.first << ", VolumeCnt: " << it.second.get_volume_count() << dendl;
+      }
+    }
+
+    double period = 5.0;
+    utime_t w;
+    w.set_from_double(period);
+    dout(10) << "QoS worker thread sleeping for " << period << dendl;
+    qos_worker_cond.WaitInterval(qos_worker_lock, w);
+    dout(10) << "QoS worker thread woke up" << dendl;
+  }*/
+  /*
+
+  // 1. Get request from controller
+
+  // 2. Get VolumeCnt
+  std::lock_guard lock(volume_info_lock);
+
+  for (auto it : volume_info_map) {
+    dout(10) << __func__ << ": VolumeId " << it.first << ", VolumeCnt: " << it.second.get_volume_count() << dendl;
+  }*/
+
+  // 3-1. If this MDS is a controller, add VolumeCnt directly
+
+  // 3-2. If this MDS is not a controller, send VolumeCnt to the controller
+  
+//}
+
+/*
+void MDSDmclockScheduler::process_qos_worker()
+{
+  dout(10) << __func__ << " thread has been invoked" << dendl;
+  while (state == SchedulerState::RUNNING) {
+    process_qos_worker_handler();
+  }
+  dout(10) << __func__ << " thread has been joined" << dendl;
+}
+
+void MDSDmclockScheduler::begin_qos_worker_thread()
+{
+  qos_worker_thread = std::thread([this](){process_qos_worker();});
+}*/
 
 void MDSDmclockScheduler::enable_qos_feature()
 {
