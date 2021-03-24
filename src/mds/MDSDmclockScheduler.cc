@@ -824,7 +824,7 @@ void MDSDmclockScheduler::process_controller_handler()
 
     broadcast_from_ctrler_to_worker(gvf_map_per_mds);
 
-    double period = 5.0;
+    double period = default_conf.get_gmclock_period();
     utime_t w;
     w.set_from_double(period);
     dout(10) << "Controller thread sleeping for " << period << dendl;
@@ -1028,6 +1028,13 @@ void MDSDmclockScheduler::handle_conf_change(const std::set<std::string>& change
     dout(10) << " set limit " << g_conf().get_val<double>("mds_dmclock_limit") << dendl;
     default_conf.set_limit(g_conf().get_val<double>("mds_dmclock_limit"));
     ceph_assert(default_conf.get_limit() == g_conf().get_val<double>("mds_dmclock_limit"));
+  }
+
+  /* gmclock period setting */
+  if (changed.count("mds_gmclock_period") ) {
+    dout(10) << " period " << g_conf().get_val<double>("mds_gmclock_period") << dendl;
+    default_conf.set_gmclock_period(g_conf().get_val<double>("mds_gmclock_period"));
+    ceph_assert(default_conf.get_gmclock_period() == g_conf().get_val<double>("mds_gmclock_period"));
   }
 
   /* need to check whether conf is updated from ceph.conf when the MDS is restarted */

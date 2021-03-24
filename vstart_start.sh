@@ -2,7 +2,7 @@
 
 cd ~/ceph/build
 
-make -j12
+# make -j30
 
 NUM_MDS=3
 VSTART_DEST=~/ceph/build MDS=${NUM_MDS} ../src/vstart.sh -l -n -d --multimds ${NUM_MDS}
@@ -11,16 +11,19 @@ VSTART_DEST=~/ceph/build MDS=${NUM_MDS} ../src/vstart.sh -l -n -d --multimds ${N
 ./bin/ceph --admin-daemon ./out/mds.a.asok config set mds_dmclock_reservation 30
 ./bin/ceph --admin-daemon ./out/mds.a.asok config set mds_dmclock_weight 50
 ./bin/ceph --admin-daemon ./out/mds.a.asok config set mds_dmclock_limit 100
+# ./bin/ceph --admin-daemon ./out/mds.a.asok config set mds_gmclock_period 8
 
 ./bin/ceph --admin-daemon ./out/mds.b.asok config set mds_dmclock_enable true
 ./bin/ceph --admin-daemon ./out/mds.b.asok config set mds_dmclock_reservation 30
 ./bin/ceph --admin-daemon ./out/mds.b.asok config set mds_dmclock_weight 50
 ./bin/ceph --admin-daemon ./out/mds.b.asok config set mds_dmclock_limit 100
+# ./bin/ceph --admin-daemon ./out/mds.b.asok config set mds_gmclock_period 8
 
 ./bin/ceph --admin-daemon ./out/mds.c.asok config set mds_dmclock_enable true
 ./bin/ceph --admin-daemon ./out/mds.c.asok config set mds_dmclock_reservation 30
 ./bin/ceph --admin-daemon ./out/mds.c.asok config set mds_dmclock_weight 50
 ./bin/ceph --admin-daemon ./out/mds.c.asok config set mds_dmclock_limit 100
+# ./bin/ceph --admin-daemon ./out/mds.c.asok config set mds_gmclock_period 8
 
 ./bin/ceph fs subvolume create a subvolume --size $((100*1024*1024*1024))
 SUBVOL=`./bin/ceph fs subvolume getpath a subvolume`

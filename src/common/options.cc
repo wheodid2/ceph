@@ -8276,6 +8276,11 @@ std::vector<Option> get_mds_options() {
      .set_description("task status update interval to manager")
      .set_long_description("interval (in seconds) for sending mds task status to ceph manager"),
 
+    Option("mds_gmclock_period", Option::TYPE_FLOAT, Option::LEVEL_DEV)
+     .set_default(5.0)
+     .set_description("")
+     .set_long_description(""),
+
     Option("mds_dmclock_enable", Option::TYPE_BOOL, Option::LEVEL_DEV)
      .set_default(false)
      .set_description("")

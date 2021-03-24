@@ -119,8 +119,10 @@ public:
 
 class QoSInfo : public ClientInfo {
 public:
+  double gmclock_period;
+
   explicit QoSInfo(const double reservation, const double weight, const double limit) :
-    ClientInfo(reservation, weight, limit) {};
+    ClientInfo(reservation, weight, limit), gmclock_period(5.0) {};
 
   void set_reservation(const double _reservation)
   {
@@ -153,6 +155,16 @@ public:
   double get_limit() const
   {
     return limit;
+  }
+
+  void set_gmclock_period(const double _period)
+  {
+    gmclock_period = _period;
+  }
+
+  double get_gmclock_period() const
+  {
+    return gmclock_period;
   }
 
   const ClientInfo* get_qos_info() const

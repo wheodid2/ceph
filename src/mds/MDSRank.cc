@@ -3762,6 +3762,7 @@ const char** MDSRankDispatcher::get_tracked_conf_keys() const
     "mds_dmclock_reservation",
     "mds_dmclock_weight",
     "mds_dmclock_limit",
+    "mds_gmclock_period",
     NULL
   };
   return KEYS;
