@@ -325,16 +325,9 @@ private:
   std::map<VolumeId, VolumeInfo> volume_info_map;
   mutable std::mutex volume_info_lock;
 
-  //std::map<VolumeId, std::vector<VolumeCnt>> volume_reqnum_map;
-  //mutable std::mutex volume_reqnum_lock;
-
   Mutex controller_lock;
   Cond controller_cond;
   bool controller_stop;
-
-  //Mutex qos_worker_lock;
-  //Cond qos_worker_cond;
-  //bool qos_worker_stop;
 
 public:
   static constexpr uint32_t SUBVOL_ROOT_DEPTH = 3;
@@ -365,7 +358,6 @@ public:
   /* multi MDS broadcast message */
   void broadcast_qos_info_update_to_mds(const VolumeId& vid, const dmclock_info_t &dmclock_info);
 
-  /* #hong send the data */
   void broadcast_to_worker_for_volume_cnt();
   void broadcast_from_ctrler_to_worker(std::map<mds_rank_t,std::map<VolumeId,GVF>> gvf_map_per_mds);
   void lonely_sending_to_ctrler(const std::map<VolumeId, VolumeCnt>& volcnt_map);
@@ -391,16 +383,12 @@ public:
   /* request event handler */
   void begin_schedule_thread();
   void begin_controller_thread();
-  //void begin_qos_worker_thread();
   void process_request();
   void process_request_handler();
   void process_controller();
   void process_controller_handler();
-  //void process_qos_worker();
-  //void process_qos_worker_handler();
   std::thread scheduler_thread;
   std::thread controller_thread;
-  //std::thread qos_worker_thread;
   mutable std::mutex queue_mutex;
   mutable std::mutex volcnt_queue_mutex;
   std::condition_variable queue_cvar;
@@ -429,7 +417,6 @@ public:
       const Queue::CanHandleRequestFunc _can_handle_func,
       const Queue::HandleRequestFunc _handle_request_func) : mds(m),
       controller_lock("MDSDmclockScheduler::controller_lock")
-      //qos_worker_lock("MDSDmclockScheduler::qos_worker_lock")
   {
     if (_client_info_func) {
       client_info_func = _client_info_func;
@@ -460,9 +447,7 @@ public:
     begin_schedule_thread();
 
     controller_stop = false;
-    //qos_worker_stop = false;
-    //begin_controller_thread();
-    //begin_qos_worker_thread();
+    begin_controller_thread();
 
     default_conf.set_reservation(g_conf().get_val<double>("mds_dmclock_reservation"));
     default_conf.set_weight(g_conf().get_val<double>("mds_dmclock_weight"));

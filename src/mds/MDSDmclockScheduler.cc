@@ -168,6 +168,7 @@ void MDSDmclockScheduler::dump(Formatter *f) const
     f->dump_float("default_limit", default_conf.get_limit());
     f->dump_int("mds_dmclock_queue_size", get_request_queue_size());
     f->dump_int("inflight_requests", total_inflight_requests);
+    f->dump_int("mds_dmclock_queue_size", default_conf.get_gmclock_period());
   }
   f->close_section(); // qos_state
 
@@ -406,8 +407,6 @@ void MDSDmclockScheduler::broadcast_qos_info_update_to_mds(const VolumeId& vid, 
   }
 }
 
-
-
 void MDSDmclockScheduler::broadcast_to_worker_for_volume_cnt()
 {
   dout(10) << __func__ << " from MDS Rank" << mds->get_nodeid() << dendl;
@@ -426,7 +425,6 @@ void MDSDmclockScheduler::broadcast_to_worker_for_volume_cnt()
   }
 }
 
-// #hong broadcast here
 void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(std::map<mds_rank_t,std::map<VolumeId,GVF>> gvf_map_per_mds)
 {
   dout(10) << __func__ << " from MDS Rank" << mds->get_nodeid() << dendl;
@@ -449,7 +447,6 @@ void MDSDmclockScheduler::broadcast_from_ctrler_to_worker(std::map<mds_rank_t,st
   }
 }
 
-// #hong send_dmclock_message_mds
 void MDSDmclockScheduler::lonely_sending_to_ctrler(const std::map<VolumeId, VolumeCnt>& volcnt_map)
 {
   dout(10) << __func__ << " from MDS Rank" << mds->get_nodeid() << dendl;
@@ -631,7 +628,6 @@ void MDSDmclockScheduler::handle_controller_qos_message(const MMDSControllerQoS:
   }
 }
 
-// #hong; add case MSG_MDS_DMCLOCK_SIM
 void MDSDmclockScheduler::proc_message(const Message::const_ref &m)
 {
   switch (m->get_type()) {
@@ -751,7 +747,7 @@ void MDSDmclockScheduler::process_controller_handler()
 {
   std::lock_guard l(controller_lock);
 
-  // 1. Periodic action
+  // Periodic action
   while (!controller_stop) {
     std::map<std::string,std::map<mds_rank_t,VolumeCnt>> gv_map;
     std::vector<mds_rank_t> mds_id;
@@ -849,56 +845,6 @@ void MDSDmclockScheduler::begin_controller_thread()
     controller_thread = std::thread([this](){process_controller();});
   }
 }
-
-/*
-void MDSDmclockScheduler::process_qos_worker_handler()
-{
-  while (true) {
-    {
-      std::lock_guard<std::mutex> lock(volume_info_lock);
-      for (auto it : volume_info_map) {
-	dout(10) << __func__ << ": VolumeId " << it.first << ", VolumeCnt: " << it.second.get_volume_count() << dendl;
-      }
-    }
-
-    double period = 5.0;
-    utime_t w;
-    w.set_from_double(period);
-    dout(10) << "QoS worker thread sleeping for " << period << dendl;
-    qos_worker_cond.WaitInterval(qos_worker_lock, w);
-    dout(10) << "QoS worker thread woke up" << dendl;
-  }*/
-  /*
-
-  // 1. Get request from controller
-
-  // 2. Get VolumeCnt
-  std::lock_guard lock(volume_info_lock);
-
-  for (auto it : volume_info_map) {
-    dout(10) << __func__ << ": VolumeId " << it.first << ", VolumeCnt: " << it.second.get_volume_count() << dendl;
-  }*/
-
-  // 3-1. If this MDS is a controller, add VolumeCnt directly
-
-  // 3-2. If this MDS is not a controller, send VolumeCnt to the controller
-  
-//}
-
-/*
-void MDSDmclockScheduler::process_qos_worker()
-{
-  dout(10) << __func__ << " thread has been invoked" << dendl;
-  while (state == SchedulerState::RUNNING) {
-    process_qos_worker_handler();
-  }
-  dout(10) << __func__ << " thread has been joined" << dendl;
-}
-
-void MDSDmclockScheduler::begin_qos_worker_thread()
-{
-  qos_worker_thread = std::thread([this](){process_qos_worker();});
-}*/
 
 void MDSDmclockScheduler::enable_qos_feature()
 {
