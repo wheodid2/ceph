@@ -55,6 +55,7 @@
 #include "messages/MRemoveSnaps.h"
 #include "messages/MOSDScrub.h"
 #include "messages/MRoute.h"
+#include "messages/MOSDDmclockQoS.h" // #hong
 
 #include "common/TextTable.h"
 #include "common/Timer.h"
@@ -395,6 +396,7 @@ OSDMonitor::OSDMonitor(
    has_osdmap_manifest(false),
    mapper(mn->cct, &mn->cpu_tp)
 {
+  broadcaster_check = 0;
   inc_cache = std::make_shared<IncCache>(this);
   full_cache = std::make_shared<FullCache>(this);
   cct->_conf.add_observer(this);
@@ -406,6 +408,61 @@ OSDMonitor::OSDMonitor(
          << dendl;
   }
 }
+
+// #hong
+void OSDMonitor::begin_qos_thread()
+{
+  if(broadcaster_check>0) {
+    return;
+  }
+  dout(17) << "qos thread gen"<<dendl;
+  std::thread scheduler_thread(&OSDMonitor::qos_request, this);
+  scheduler_thread.detach();
+  broadcaster_check = 1;
+}
+
+// #hong
+void OSDMonitor::qos_request()
+{
+  // make message, broadcast message
+  dout(17) << "broadcast" << dendl;
+  while(1){
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    broadcast_qos();
+  }
+  /*
+  Mutex qos_lock;
+  Cond qos_cond;
+  double period = 5.0;
+  utime_t w;
+  w.set_from_double(period);
+  */
+
+}
+
+// #hong
+void OSDMonitor::broadcast_qos()
+{
+  dout(17)<< "osd nums: " << osdmap.get_num_up_osds() << dendl;
+  multimap<int,MonSession*>::iterator p;
+  MonSession *s = NULL;
+
+  if (osdmap.get_num_up_osds()<1) {
+      dout(41) << "no osdmap" <<dendl;
+      return;
+  }
+
+  for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+    dout(17)<< "in for loop "<< p->first <<dendl;
+    if (osdmap.is_up(p->first)) {
+      MOSDDmclockQoS* qos_msg = new MOSDDmclockQoS(MOSDDmclockQoS::BROADCAST_TO_ALL);
+      s = p->second;
+      s->con->send_message(qos_msg);
+      dout(17)<< "send done " << p->first <<dendl;
+    }
+  }
+}
+
 
 const char **OSDMonitor::get_tracked_conf_keys() const
 {
@@ -967,6 +1024,14 @@ void OSDMonitor::start_mapping()
   } else {
     dout(10) << __func__ << " no pools, no mapping job" << dendl;
     mapping_job = nullptr;
+  }
+
+  // #honghong
+  // check the rank is 0(a monitor with highest priority)
+  // if rank is 0, make a thread for sending osd qos message 
+  if (mon->rank == 0) {
+    dout(17) << "begin_qos_thread -- mon." << mon->name << "( 0 )" << dendl;
+    begin_qos_thread();
   }
 }
 

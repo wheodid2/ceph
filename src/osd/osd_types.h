@@ -5910,4 +5910,43 @@ struct omap_stat_t {
  int64_t omap_keys;
 };
 
+
+// #hong dmclock_osd_info for osd, same as mds
+struct dmclock_osd_info_t
+{
+  double osd_reservation = 0;
+  double osd_limit = 0;
+  double osd_weight = 0;
+
+  dmclock_osd_info_t() {}
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    encode(osd_reservation, bl);
+    encode(osd_limit, bl);
+    encode(osd_weight, bl);
+    ENCODE_FINISH(bl);
+  }
+
+  void decode(bufferlist::const_iterator& p) {
+    DECODE_START_LEGACY_COMPAT_LEN(1, 1, 1, p);
+    decode(osd_reservation, p);
+    decode(osd_limit, p);
+    decode(osd_weight, p);
+    DECODE_FINISH(p);
+  }
+  bool is_valid() const {
+    return osd_reservation > 0 && osd_limit > 0 && osd_weight > 0;
+  }
+  void dump(Formatter *f) const;
+  static void generate_test_instances(list<dmclock_osd_info_t *>& ls);
+};
+WRITE_CLASS_ENCODER(dmclock_osd_info_t)
+
+inline bool operator==(const dmclock_osd_info_t &l, const dmclock_osd_info_t &r) {
+  return memcmp(&l, &r, sizeof(l)) == 0;
+}
+
+std::ostream& operator<<(std::ostream &out, const dmclock_osd_info_t &n);
+
 #endif

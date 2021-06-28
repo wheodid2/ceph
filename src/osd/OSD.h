@@ -2328,6 +2328,7 @@ private:
 			ObjectStore *store,
 			uuid_d& cluster_fsid, uuid_d& osd_fsid, int whoami);
 
+  void handle_qos(struct MOSDDmclockQoS*m); // #hong handle_qos added
   void handle_scrub(struct MOSDScrub *m);
   void handle_fast_scrub(struct MOSDScrub2 *m);
   void handle_osd_ping(class MOSDPing *m);

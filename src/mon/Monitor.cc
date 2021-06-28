@@ -61,6 +61,8 @@
 #include "messages/MTimeCheck2.h"
 #include "messages/MPing.h"
 
+#include "messages/MOSDDmclockQoS.h"   //#hong
+
 #include "common/strtol.h"
 #include "common/ceph_argparse.h"
 #include "common/Timer.h"
@@ -4294,6 +4296,7 @@ void Monitor::remove_all_sessions()
     logger->set(l_mon_num_sessions, session_map.get_size());
 }
 
+// #hong check
 void Monitor::send_mon_message(Message *m, int rank)
 {
   messenger->send_to_mon(m, monmap->get_addrs(rank));
@@ -4489,6 +4492,10 @@ void Monitor::dispatch_op(MonOpRequestRef op)
       /* FIXME: check what's being subscribed, filter accordingly */
       handle_subscribe(op);
       return;
+    
+    case MSG_OSD_DMCLOCK_QOS:
+      handle_osd_qos(op);
+      return;
   }
 
   /* well, maybe the op belongs to a service... */
@@ -4668,6 +4675,16 @@ void Monitor::dispatch_op(MonOpRequestRef op)
   dout(1) << "dropping unexpected " << *(op->get_req()) << dendl;
   return;
 }
+
+// #hong 
+void Monitor::handle_osd_qos(MonOpRequestRef op)
+{
+  MOSDDmclockQoS *m = static_cast<MOSDDmclockQoS*>(op->get_req());
+  dout(27) << __func__ << " " << *m << dendl;
+  dout(17) << " operation " << m->get_sub_op_str() << dendl;
+  
+}
+
 
 void Monitor::handle_ping(MonOpRequestRef op)
 {

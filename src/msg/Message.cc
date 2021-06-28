@@ -93,6 +93,7 @@
 #include "messages/MOSDPGRecoveryDelete.h"
 #include "messages/MOSDPGRecoveryDeleteReply.h"
 #include "messages/MOSDPGReadyToMerge.h"
+#include "messages/MOSDDmclockQoS.h"  // #hong
 
 #include "messages/MRemoveSnaps.h"
 
@@ -122,6 +123,7 @@
 #include "messages/MClientSnap.h"
 #include "messages/MClientQuota.h"
 #include "messages/MClientQoS.h"
+// #include "messages/MClientOSDQoS.h" // #hong
 
 #include "messages/MMDSSlaveRequest.h"
 
@@ -592,6 +594,11 @@ Message *decode_message(CephContext *cct, int crcflags,
   case MSG_OSD_EC_READ_REPLY:
     m = MOSDECSubOpReadReply::create();
     break;
+    // #hong
+  case MSG_OSD_DMCLOCK_QOS:
+    m = MOSDDmclockQoS::create();
+    break;
+
    // auth
   case CEPH_MSG_AUTH:
     m = MAuth::create();
@@ -650,6 +657,13 @@ Message *decode_message(CephContext *cct, int crcflags,
   case CEPH_MSG_CLIENT_QOS:
     m = MClientQoS::create();
     break;
+    // #hong
+    /*
+  case CEPH_MSG_CLIENT_OSDQOS:
+    m = MClientOSDQoS::create();
+    break;
+    
+    */
 
     // mds
   case MSG_MDS_SLAVE_REQUEST:

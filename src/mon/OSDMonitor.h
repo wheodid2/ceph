@@ -217,6 +217,10 @@ class OSDMonitor : public PaxosService,
 
 public:
   OSDMap osdmap;
+  int broadcaster_check;  // #hong
+  void begin_qos_thread();  // #hong
+  void qos_request();
+  void broadcast_qos();
 
   // config observer
   const char** get_tracked_conf_keys() const override;

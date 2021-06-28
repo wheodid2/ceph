@@ -104,6 +104,7 @@
 #include "messages/MOSDPGCreated.h"
 #include "messages/MOSDPGUpdateLogMissing.h"
 #include "messages/MOSDPGUpdateLogMissingReply.h"
+#include "messages/MOSDDmclockQoS.h"
 
 #include "messages/MOSDPeeringOp.h"
 
@@ -6656,7 +6657,7 @@ void OSD::handle_command(MMonCommand *m)
   command_wq.queue(c);
   m->put();
 }
-
+// #hong handle_command
 void OSD::handle_command(MCommand *m)
 {
   ConnectionRef con = m->get_connection();
@@ -7407,7 +7408,7 @@ bool OSD::heartbeat_dispatch(Message *m)
 
   return true;
 }
-
+// #hong #ms_dispatch
 bool OSD::ms_dispatch(Message *m)
 {
   dout(20) << "OSD::ms_dispatch: " << *m << dendl;
@@ -7505,6 +7506,7 @@ void OSD::dispatch_session_waiting(SessionRef session, OSDMapRef osdmap)
   }
 }
 
+// #hong #ms_fast_dispatch
 void OSD::ms_fast_dispatch(Message *m)
 {
   FUNCTRACE(cct);
@@ -7539,6 +7541,10 @@ void OSD::ms_fast_dispatch(Message *m)
     return handle_fast_pg_info(static_cast<MOSDPGInfo*>(m));
   case MSG_OSD_PG_REMOVE:
     return handle_fast_pg_remove(static_cast<MOSDPGRemove*>(m));
+    //  #hong MSG_OSD_MCLOCK_QOS
+  case MSG_OSD_DMCLOCK_QOS:
+    handle_qos(static_cast<MOSDDmclockQoS*>(m));
+    return;
 
     // these are single-pg messages that handle themselves
   case MSG_OSD_PG_LOG:
@@ -7694,6 +7700,7 @@ void OSD::dispatch_op(OpRequestRef op)
   }
 }
 
+// #hong_dispatch
 void OSD::_dispatch(Message *m)
 {
   ceph_assert(osd_lock.is_locked());
@@ -7716,6 +7723,11 @@ void OSD::_dispatch(Message *m)
     handle_command(static_cast<MCommand*>(m));
     return;
 
+    //  #hong MSG_OSD_MCLOCK_QOS
+  case MSG_OSD_DMCLOCK_QOS:
+    handle_qos(static_cast<MOSDDmclockQoS*>(m));
+    return;
+
     // -- need OSDMap --
 
   case MSG_OSD_PG_CREATE:
@@ -7736,6 +7748,30 @@ void OSD::_dispatch(Message *m)
       dispatch_op(op);
     }
   }
+}
+
+// #hong handle_qos
+void OSD::handle_qos(MOSDDmclockQoS*m)
+{
+  dout(17) << "handle_qos_kaist, message:  " << m->get_sub_op() << dendl;
+  // anything else???
+  // send to monitor!!!!
+  // how to send the message to mon???
+  
+  /* ref from handle_command
+  ConnectionRef con = m->get_connection();
+  auto priv = con->get_priv();
+  auto session = static_cast<Session *>(priv.get());
+  if (!session) {
+    con->send_message(new MCommandReply(m, -EPERM));
+    m->put();
+    return;
+  }
+  */
+  // #hong, the bottom comments will be needed for reply to monitor 
+  ConnectionRef con = m->get_connection();
+  con->send_message(new MOSDDmclockQoS(MOSDDmclockQoS::REPLY_TO_LEADER)); 
+  m->put();
 }
 
 // remove me post-nautilus
