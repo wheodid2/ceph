@@ -47,8 +47,8 @@ class DelItem
     { delete delete_this; }
 };
 
-template <typename T, typename K>
-class WeightedPriorityQueue :  public OpQueue <T, K>
+template <typename T, typename K, typename D>
+class WeightedPriorityQueue :  public OpQueue <T, K, D>
 {
   private:
     class ListPair : public bi::list_base_hook<>

@@ -106,6 +106,7 @@ public:
       owner(owner),
       map_epoch(e)
   {}
+  OpQueueItem();
   OpQueueItem(OpQueueItem &&) = default;
   OpQueueItem(const OpQueueItem &) = delete;
   OpQueueItem &operator=(OpQueueItem &&) = default;

@@ -60,13 +60,13 @@ target_link_libraries(unittest_prioritized_queue ceph-common)
 add_ceph_unittest(unittest_prioritized_queue)
 
 # unittest_mclock_priority_queue
-add_executable(unittest_mclock_priority_queue
-  test_mclock_priority_queue.cc
-  )
-add_ceph_unittest(unittest_mclock_priority_queue)
-target_link_libraries(unittest_mclock_priority_queue
-  ceph-common
-  dmclock::dmclock)
+#add_executable(unittest_mclock_priority_queue
+#  test_mclock_priority_queue.cc
+#  )
+#add_ceph_unittest(unittest_mclock_priority_queue)
+#target_link_libraries(unittest_mclock_priority_queue
+#  ceph-common
+#  dmclock::dmclock)
 
 # unittest_str_map
 add_executable(unittest_str_map

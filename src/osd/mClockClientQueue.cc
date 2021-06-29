@@ -91,7 +91,7 @@ namespace ceph {
   }
 
   // Return an op to be dispatched
-  inline Request mClockClientQueue::dequeue() {
+  inline WorkItem mClockClientQueue::dequeue() {
     return queue.dequeue();
   }
 } // namespace ceph

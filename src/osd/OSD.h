@@ -1184,7 +1184,8 @@ struct OSDShard {
   ceph::condition_variable min_pg_epoch_cond;
 
   /// priority queue
-  std::unique_ptr<OpQueue<OpQueueItem, uint64_t>> pqueue;
+  std::unique_ptr<OpQueue<OpQueueItem, uint64_t, WorkItem>> pqueue;
+  std::unique_ptr<OpQueue<OpQueueItem, uint64_t, OpQueueItem>> wpq_pqueue;
 
   bool stop_waiting = false;
 
@@ -1250,12 +1251,12 @@ struct OSDShard {
       shard_lock{make_mutex(shard_lock_name)},
       context_queue(sdata_wait_lock, sdata_cond) {
     if (opqueue == io_queue::weightedpriority) {
-      pqueue = std::make_unique<
-	WeightedPriorityQueue<OpQueueItem,uint64_t>>(
+      wpq_pqueue = std::make_unique<
+	WeightedPriorityQueue<OpQueueItem,uint64_t,OpQueueItem>>(
 	  max_tok_per_prio, min_cost);
     } else if (opqueue == io_queue::prioritized) {
-      pqueue = std::make_unique<
-	PrioritizedQueue<OpQueueItem,uint64_t>>(
+      wpq_pqueue = std::make_unique<
+	PrioritizedQueue<OpQueueItem,uint64_t,OpQueueItem>>(
 	  max_tok_per_prio, min_cost);
     } else if (opqueue == io_queue::mclock_opclass) {
       pqueue = std::make_unique<ceph::mClockOpClassQueue>(cct);

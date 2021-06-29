@@ -15,6 +15,7 @@
 #include <thread>
 #include <chrono>
 #include <iostream>
+#include <variant>
 #include "gtest/gtest.h"
 #include "common/mClockPriorityQueue.h"
 
@@ -30,6 +31,7 @@ struct Request {
   {}
 };
 
+using WorkItem = std::variant<std::monostate, Request, double>;
 
 struct Client {
   int client_num;
@@ -57,13 +59,13 @@ const crimson::dmclock::ClientInfo* client_info_func(const Client& c) {
 
 TEST(mClockPriorityQueue, Create)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 }
 
 
 TEST(mClockPriorityQueue, Sizes)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   ASSERT_TRUE(q.empty());
   ASSERT_EQ(0u, q.get_size_slow());
@@ -93,7 +95,7 @@ TEST(mClockPriorityQueue, Sizes)
 
 TEST(mClockPriorityQueue, JustStrict)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   Client c1(1);
   Client c2(2);
@@ -118,7 +120,7 @@ TEST(mClockPriorityQueue, JustStrict)
 
 TEST(mClockPriorityQueue, StrictPriorities)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   Client c1(1);
   Client c2(2);
@@ -143,7 +145,7 @@ TEST(mClockPriorityQueue, StrictPriorities)
 
 TEST(mClockPriorityQueue, JustNotStrict)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   Client c1(1);
   Client c2(2);
@@ -177,7 +179,7 @@ TEST(mClockPriorityQueue, JustNotStrict)
 
 TEST(mClockPriorityQueue, EnqueuFront)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   Client c1(1);
   Client c2(2);
@@ -231,7 +233,7 @@ TEST(mClockPriorityQueue, EnqueuFront)
 
 TEST(mClockPriorityQueue, RemoveByClass)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   Client c1(1);
   Client c2(2);
@@ -275,7 +277,7 @@ TEST(mClockPriorityQueue, RemoveByClass)
 
 TEST(mClockPriorityQueue, RemoveByFilter)
 {
-  ceph::mClockQueue<Request,Client> q(&client_info_func);
+  ceph::mClockQueue<Request,Client,WorkItem> q(&client_info_func);
 
   Client c1(1);
   Client c2(2);

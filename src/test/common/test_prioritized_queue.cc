@@ -16,7 +16,7 @@ class PrioritizedQueueTest : public testing::Test
 protected:
   typedef int Klass;
   typedef unsigned Item;
-  typedef PrioritizedQueue<Item, Klass> PQ;
+  typedef PrioritizedQueue<Item, Klass, Item> PQ;
   enum { item_size  = 100, };
   vector<Item> items;
 

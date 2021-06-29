@@ -10204,6 +10204,7 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
 
   dout(15) << "enqueue_op " << op << " prio " << priority
 	   << " cost " << cost
+     << " owner " << owner
 	   << " latency " << latency
 	   << " epoch " << epoch
 	   << " " << *(op->get_req()) << dendl;
@@ -11231,30 +11232,56 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
     sdata->context_queue.swap(oncommits);
   }
 
-  if (sdata->pqueue->empty()) {
+  // DY: handling "future" mclock item for AtLimit:Wait.
+  WorkItem work_item;
+  while (!std::get_if<OpQueueItem>(&work_item)) {
+    if (sdata->pqueue->empty()) {
+      if (osd->is_stopping()) {
+        sdata->shard_lock.unlock();
+        for (auto c : oncommits) {
+  	dout(10) << __func__ << " discarding in-flight oncommit " << c << dendl;
+  	delete c;
+        }
+        return;    // OSD shutdown, discard.
+      }
+      sdata->shard_lock.unlock();
+      handle_oncommits(oncommits);
+      return;
+    }
+
+    work_item = sdata->pqueue->dequeue();
+    dout(20) << __func__ << " pqueue->dequeue() " << dendl;
     if (osd->is_stopping()) {
       sdata->shard_lock.unlock();
       for (auto c : oncommits) {
-	dout(10) << __func__ << " discarding in-flight oncommit " << c << dendl;
-	delete c;
+        dout(10) << __func__ << " discarding in-flight oncommit " << c << dendl;
+        delete c;
       }
       return;    // OSD shutdown, discard.
     }
-    sdata->shard_lock.unlock();
-    handle_oncommits(oncommits);
-    return;
-  }
 
-  OpQueueItem item = sdata->pqueue->dequeue();
-  if (osd->is_stopping()) {
-    sdata->shard_lock.unlock();
-    for (auto c : oncommits) {
-      dout(10) << __func__ << " discarding in-flight oncommit " << c << dendl;
-      delete c;
+    // If the work item is scheduled in the future, wait until
+    // the time returned in the dequeue response before retrying.
+    //dout(20) << __func__ << " pqueue->future_time " << sdata->pqueue->future_time << dendl;
+    if (auto when_ready = std::get_if<double>(&work_item)) {
+      if (is_smallest_thread_index) {
+        sdata->shard_lock.unlock();
+        handle_oncommits(oncommits);
+        return;
+      }
+      std::unique_lock wait_lock{sdata->sdata_wait_lock};
+      auto future_time = ceph::real_clock::from_double(*when_ready);
+      dout(10) << __func__ << " dequeue future request at " << future_time << dendl;
+      sdata->shard_lock.unlock();
+      //++sdata->waiting_threads;
+      sdata->sdata_cond.wait_until(wait_lock, future_time);
+      //--sdata->waiting_threads;
+      wait_lock.unlock();
+      sdata->shard_lock.lock();
     }
-    return;    // OSD shutdown, discard.
-  }
+  } // while
 
+  auto item = std::move(std::get<OpQueueItem>(work_item));
   const auto token = item.get_ordering_token();
   auto r = sdata->pg_slots.emplace(token, nullptr);
   if (r.second) {

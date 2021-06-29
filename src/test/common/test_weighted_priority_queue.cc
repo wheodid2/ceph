@@ -24,7 +24,7 @@ protected:
   typedef std::tuple<unsigned, unsigned, unsigned> Item;
   typedef unsigned Prio;
   typedef unsigned Kost;
-  typedef WeightedPriorityQueue<Item, Klass> WQ;
+  typedef WeightedPriorityQueue<Item, Klass, Item> WQ;
   // Simulate queue structure
   typedef std::list<std::pair<Kost, Item> > ItemList;
   typedef std::map<Klass, ItemList> KlassItem;

@@ -34,8 +34,8 @@ namespace ceph {
 
   namespace dmc = crimson::dmclock;
 
-  template <typename T, typename K>
-  class mClockQueue : public OpQueue <T, K> {
+  template <typename T, typename K, typename D>
+  class mClockQueue : public OpQueue <T, K, D> {
 
     using priority_t = unsigned;
     using cost_t = unsigned;
@@ -218,7 +218,8 @@ namespace ceph {
     mClockQueue(
       const typename Queue::ClientInfoFunc& info_func,
       double anticipation_timeout = 0.0) :
-      queue(info_func, dmc::AtLimit::Allow, anticipation_timeout)
+      //queue(info_func, dmc::AtLimit::Allow, anticipation_timeout)
+      queue(info_func, dmc::AtLimit::Wait, anticipation_timeout)
     {
       // empty
     }
@@ -316,7 +317,7 @@ namespace ceph {
       return queue.empty() && high_queue.empty() && queue_front.empty();
     }
 
-    T dequeue() override final {
+    D dequeue() override final {
       ceph_assert(!empty());
 
       if (!high_queue.empty()) {
@@ -334,10 +335,39 @@ namespace ceph {
 	return ret;
       }
 
-      auto pr = queue.pull_request();
-      ceph_assert(pr.is_retn());
+      auto result = queue.pull_request();
+      // DY: if a request is for "future", save future_time.
+      //ceph_assert(pr.is_retn());
+      /*
+      if (pr.is_future()) {
+        std::cout << " is_future " << std::endl;
+	future_time = pr.getTime();
+      }
+      else if (pr.is_retn()) {
+	std::cout << " is_return " << std::endl;
+	future_time = 0;
+      }
+      else {
+	std::cout << " is_else " << std::endl;
+	ceph_assert(
+	  0 == "Impossible, must have checked empty() first");
+      }
       auto& retn = pr.get_retn();
       return std::move(*(retn.request));
+      */
+
+      if (result.is_future()) {
+        return result.getTime();
+      } else if (result.is_none()) {
+        ceph_assert(
+  	0 == "Impossible, must have checked empty() first");
+        return {};
+      } else {
+        ceph_assert(result.is_retn());
+  
+        auto &retn = result.get_retn();
+        return std::move(*retn.request);
+      }
     }
 
     void dump(ceph::Formatter *f) const override final {
