@@ -543,8 +543,9 @@ private:
     return (abs_skew > g_conf()->mon_clock_drift_allowed);
   }
 
-// #hong
-void handle_osd_qos(MonOpRequestRef op);;
+  // #hong
+  void handle_osd_qos(MonOpRequestRef op);;
+  void handle_osd_ctrl_qos(MonOpRequestRef op);;
   /**
    * @}
    */

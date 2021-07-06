@@ -56,6 +56,7 @@
 #include "messages/MOSDScrub.h"
 #include "messages/MRoute.h"
 #include "messages/MOSDDmclockQoS.h" // #hong
+#include "messages/MOSDControllerQoS.h" // #hong
 
 #include "common/TextTable.h"
 #include "common/Timer.h"
@@ -425,10 +426,29 @@ void OSDMonitor::begin_qos_thread()
 void OSDMonitor::qos_request()
 {
   // make message, broadcast message
+
   dout(17) << "broadcast" << dendl;
   while(1){
+    std::map<int, std::map<uint64_t, int>> big_gvf_map;
+    /*
+    updating big_gvf_map with received data
+    currently, use just use sample data;
+    */
+    multimap<int,MonSession*>::iterator p;
+    std::map<uint64_t, int> gvf_map;
+    if (osdmap.get_num_up_osds()<1) {
+        return;
+    }
+
+    for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+      if (osdmap.is_up(p->first)) {
+        gvf_map.insert({1, 1});
+        big_gvf_map.insert({p->first, gvf_map});
+      }
+    }
+    // updating period 1sec
     std::this_thread::sleep_for(std::chrono::seconds(1));
-    broadcast_qos();
+    broadcast_qos(big_gvf_map);
   }
   /*
   Mutex qos_lock;
@@ -441,11 +461,12 @@ void OSDMonitor::qos_request()
 }
 
 // #hong
-void OSDMonitor::broadcast_qos()
+void OSDMonitor::broadcast_qos(std::map<int, std::map<uint64_t, int>> big_gvf_map)
 {
   dout(17)<< "osd nums: " << osdmap.get_num_up_osds() << dendl;
   multimap<int,MonSession*>::iterator p;
   MonSession *s = NULL;
+  std::map<uint64_t, int> gvf_map;
 
   if (osdmap.get_num_up_osds()<1) {
       dout(41) << "no osdmap" <<dendl;
@@ -453,9 +474,13 @@ void OSDMonitor::broadcast_qos()
   }
 
   for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
-    dout(17)<< "in for loop "<< p->first <<dendl;
+    dout(17)<< "in for a loop "<< p->first <<dendl;
     if (osdmap.is_up(p->first)) {
-      MOSDDmclockQoS* qos_msg = new MOSDDmclockQoS(MOSDDmclockQoS::BROADCAST_TO_ALL);
+      //MOSDDmclockQoS* qos_msg = new MOSDDmclockQoS(MOSDDmclockQoS::BROADCAST_TO_ALL);
+      gvf_map = big_gvf_map[p->first];
+      //auto qos_msg = MOSDControllerQoS::create(p->first, gvf_map, MOSDControllerQoS::BROADCAST_TO_ALL);
+      MOSDControllerQoS* qos_msg = new MOSDControllerQoS(p->first, gvf_map, MOSDControllerQoS::BROADCAST_TO_ALL);
+      
       s = p->second;
       s->con->send_message(qos_msg);
       dout(17)<< "send done " << p->first <<dendl;
@@ -463,6 +488,11 @@ void OSDMonitor::broadcast_qos()
   }
 }
 
+void set_big_qos_map(std::map<int, std::map<uint64_t, int>> big_map){
+  big_qos_map ;
+  // big_qos_map updating
+
+}
 
 const char **OSDMonitor::get_tracked_conf_keys() const
 {

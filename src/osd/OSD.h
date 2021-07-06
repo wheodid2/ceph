@@ -255,6 +255,8 @@ class MOSDForceRecovery;
 
 class OSD;
 
+using nreq = int;  // #hong
+
 class OSDService {
 public:
   OSD *osd;
@@ -1316,6 +1318,8 @@ protected:
   bool store_is_rotational = true;
   bool journal_is_rotational = true;
 
+  std::map<uint64_t, nreq> owner_info_map;  // #hong move to private
+
   ZTracer::Endpoint trace_endpoint;
   void create_logger();
   void create_recoverystate_perf();
@@ -2329,7 +2333,8 @@ private:
 			ObjectStore *store,
 			uuid_d& cluster_fsid, uuid_d& osd_fsid, int whoami);
 
-  void handle_qos(struct MOSDDmclockQoS*m); // #hong handle_qos added
+  void handle_qos(struct MOSDDmclockQoS*m); // #hong
+  void handle_ctrl_qos(struct MOSDControllerQoS*m); // #hong
   void handle_scrub(struct MOSDScrub *m);
   void handle_fast_scrub(struct MOSDScrub2 *m);
   void handle_osd_ping(class MOSDPing *m);

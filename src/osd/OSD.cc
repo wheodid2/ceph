@@ -105,6 +105,7 @@
 #include "messages/MOSDPGUpdateLogMissing.h"
 #include "messages/MOSDPGUpdateLogMissingReply.h"
 #include "messages/MOSDDmclockQoS.h"
+#include "messages/MOSDControllerQoS.h"
 
 #include "messages/MOSDPeeringOp.h"
 
@@ -2249,7 +2250,7 @@ int OSD::peek_meta(ObjectStore *store,
 #define dout_prefix _prefix(_dout, whoami, get_osdmap_epoch())
 
 // cons/des
-
+// #hong osd gen
 OSD::OSD(CephContext *cct_, ObjectStore *store_,
 	 int id,
 	 Messenger *internal_messenger,
@@ -7546,6 +7547,11 @@ void OSD::ms_fast_dispatch(Message *m)
     handle_qos(static_cast<MOSDDmclockQoS*>(m));
     return;
 
+    //  #hong MSG_OSD_CONTROLLER_QOS
+  case MSG_OSD_CONTROLLER_QOS:
+    handle_ctrl_qos(static_cast<MOSDControllerQoS*>(m));
+    return;
+
     // these are single-pg messages that handle themselves
   case MSG_OSD_PG_LOG:
   case MSG_OSD_PG_TRIM:
@@ -7728,6 +7734,11 @@ void OSD::_dispatch(Message *m)
     handle_qos(static_cast<MOSDDmclockQoS*>(m));
     return;
 
+    //  #hong MSG_OSD_CONTROLLER_QOS
+  case MSG_OSD_CONTROLLER_QOS:
+    handle_ctrl_qos(static_cast<MOSDControllerQoS*>(m));
+    return;
+
     // -- need OSDMap --
 
   case MSG_OSD_PG_CREATE:
@@ -7753,24 +7764,30 @@ void OSD::_dispatch(Message *m)
 // #hong handle_qos
 void OSD::handle_qos(MOSDDmclockQoS*m)
 {
-  dout(17) << "handle_qos_kaist, message:  " << m->get_sub_op() << dendl;
-  // anything else???
-  // send to monitor!!!!
-  // how to send the message to mon???
-  
-  /* ref from handle_command
-  ConnectionRef con = m->get_connection();
-  auto priv = con->get_priv();
-  auto session = static_cast<Session *>(priv.get());
-  if (!session) {
-    con->send_message(new MCommandReply(m, -EPERM));
-    m->put();
-    return;
-  }
-  */
+  dout(17) << "handle_qos, message:  " << m->get_sub_op() << dendl;
   // #hong, the bottom comments will be needed for reply to monitor 
   ConnectionRef con = m->get_connection();
   con->send_message(new MOSDDmclockQoS(MOSDDmclockQoS::REPLY_TO_LEADER)); 
+  m->put();
+}
+
+// #hong handle_ctrl_qos
+void OSD::handle_ctrl_qos(MOSDControllerQoS*m)
+{
+  dout(17) << "handle_ctrl_qos, message:  " << m->get_sub_op() << dendl;
+  // #hong, the bottom comments will be needed for reply to monitor
+  /*
+  do something in here with gvf from message
+  
+  m->get_nreq_map()
+
+  */
+
+  ConnectionRef con = m->get_connection();
+  std::map<uint64_t,nreq> nreq_map;
+  nreq_map = owner_info_map;
+
+  con->send_message(new MOSDControllerQoS(whoami, nreq_map, MOSDControllerQoS::REPLY_TO_LEADER)); 
   m->put();
 }
 
@@ -10217,6 +10234,17 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
     OpQueueItem(
       unique_ptr<OpQueueItem::OpQueueable>(new PGOpItem(pg, std::move(op))),
       cost, priority, stamp, owner, epoch));
+  
+  // #hong count req
+  auto itr = OSD::owner_info_map.find(owner);
+
+  if (itr != OSD::owner_info_map.end()) {
+    itr->second++;
+  } else {
+    nreq temp_req_num =1 ;
+    auto itr2 = OSD::owner_info_map.insert(std::make_pair(owner, temp_req_num));
+    if (itr2.second == false) dout(17) << "owner_info_map insertion failed" << dendl;
+  }
 }
 
 void OSD::enqueue_peering_evt(spg_t pgid, PGPeeringEventRef evt)

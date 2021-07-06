@@ -217,10 +217,11 @@ class OSDMonitor : public PaxosService,
 
 public:
   OSDMap osdmap;
+  std::map<int, std::map<uint64_t, int>> big_qos_map;  // #hong
   int broadcaster_check;  // #hong
   void begin_qos_thread();  // #hong
   void qos_request();
-  void broadcast_qos();
+  void broadcast_qos(std::map<int, std::map<uint64_t, int>>);
 
   // config observer
   const char** get_tracked_conf_keys() const override;
@@ -295,6 +296,8 @@ public:
 
   // svc
 public:
+  std::map<key,std::map<uint64_t, int>> get_big_qos_map(){return big_qos_map};// #hong
+  void set_big_qos_map(); // #hong
   void create_initial() override;
   void get_store_prefixes(std::set<string>& s) const override;
 
