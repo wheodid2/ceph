@@ -9,25 +9,23 @@
 #include "msg/Message.h"
 
 
-using nreq = int;
+using nreq = double;
 
 class MOSDControllerQoS : public MessageInstance<MOSDControllerQoS> {
 public:
   friend factory;
 
   enum {
-    REQUEST_TO_AUTH,
-    BROADCAST_TO_ALL,
+    BROADCAST_NREQ_TO_OSD,
+    REQUEST_TO_WORK,
     REPLY_TO_LEADER,
-    PATH_TRAVERSE
   };
 
   const char *get_sub_op_str() const {
     switch(sub_op) {
-      case REQUEST_TO_AUTH: return "REQUEST_TO_AUTH";
-      case BROADCAST_TO_ALL: return "BROADCAST_TO_ALL";
+      case BROADCAST_NREQ_TO_OSD: return "BROADCAST_NREQ_TO_OSD";
+      case REQUEST_TO_WORK: return "REQUEST_TO_WORK";
       case REPLY_TO_LEADER: return "REPLY_TO_LEADER";
-      case PATH_TRAVERSE: return "PATH_TRAVERSE";
       default: return "UKNOWN SUB OP";
     }
   }

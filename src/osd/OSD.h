@@ -255,7 +255,7 @@ class MOSDForceRecovery;
 
 class OSD;
 
-using nreq = int;  // #hong
+using nreq = double;  // #hong
 
 class OSDService {
 public:

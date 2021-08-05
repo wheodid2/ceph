@@ -7774,21 +7774,38 @@ void OSD::handle_qos(MOSDDmclockQoS*m)
 // #hong handle_ctrl_qos
 void OSD::handle_ctrl_qos(MOSDControllerQoS*m)
 {
-  dout(17) << "handle_ctrl_qos, message:  " << m->get_sub_op() << dendl;
-  // #hong, the bottom comments will be needed for reply to monitor
-  /*
-  do something in here with gvf from message
-  
-  m->get_nreq_map()
+  dout(17) << __func__ << " sub-operatation: " << m->get_sub_op_str() << dendl;
 
-  */
-
-  ConnectionRef con = m->get_connection();
-  std::map<uint64_t,nreq> nreq_map;
-  nreq_map = owner_info_map;
-
-  con->send_message(new MOSDControllerQoS(whoami, nreq_map, MOSDControllerQoS::REPLY_TO_LEADER)); 
-  m->put();
+  switch(m->get_sub_op()) {
+    case MOSDControllerQoS::BROADCAST_NREQ_TO_OSD:
+    {
+      dout(17) << "whoami: " << whoami << dendl;
+      ConnectionRef con = m->get_connection();
+      std::map<uint64_t,nreq> nreq_map;
+      nreq_map = owner_info_map;
+      con->send_message(new MOSDControllerQoS(whoami, nreq_map, MOSDControllerQoS::REPLY_TO_LEADER)); 
+      m->put();
+      return;
+    }
+    case MOSDControllerQoS::REQUEST_TO_WORK:
+    {
+      // do work
+      // manage the request number with given gvf
+      std::map<uint64_t, nreq> gvf_map;
+      gvf_map = m->get_nreq_map();
+      for (auto it = gvf_map.begin(); it != gvf_map.end(); it++) {
+	      dout(10) << "Owner: " << it->first << ", gvf: " << it->second << dendl;
+	      //set_global_view_factor(it->first, it->second);
+      }
+      // Update gvf values of all volumes.
+      // 
+      dout(17) << " do work " << dendl;
+      return;
+    }
+    default:
+      dout(0) << __func__ << "; No handleable sub-op type "<< m->get_sub_op_str() << dendl;
+      //ceph_abort();
+  }
 }
 
 // remove me post-nautilus
@@ -10239,8 +10256,10 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
   auto itr = OSD::owner_info_map.find(owner);
 
   if (itr != OSD::owner_info_map.end()) {
+    // itr->second.increase_owner_count();
     itr->second++;
   } else {
+    // add new one 
     nreq temp_req_num =1 ;
     auto itr2 = OSD::owner_info_map.insert(std::make_pair(owner, temp_req_num));
     if (itr2.second == false) dout(17) << "owner_info_map insertion failed" << dendl;

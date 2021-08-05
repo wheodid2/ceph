@@ -32,7 +32,6 @@ public:
 
 private:
   //mds_rank_t from;     // should change #hong
-  //std::string volume_id;   // #hong: we don't know it
   //dmclock_osd_info_t dmclock_osd_info;  // #hong should change
   __u8 sub_op;
 
