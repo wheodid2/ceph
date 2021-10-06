@@ -169,6 +169,8 @@
 #include "messages/MMDSDmclockQoS.h"
 #include "messages/MMDSControllerQoS.h"
 
+#include "messages/MMDSVMap.h"
+
 #include "messages/MMDSTableRequest.h"
 
 //#include "messages/MInodeUpdate.h"
@@ -803,6 +805,10 @@ Message *decode_message(CephContext *cct, int crcflags,
   
   case MSG_MDS_CONTROLLER_QOS:
     m = MMDSControllerQoS::create();
+    break;
+
+  case MSG_MDS_MONITOR_VMAP:   // #hong added for mds-mon comm
+    m = MMDSVMap::create();
     break;
 
   case MSG_MGR_BEACON:

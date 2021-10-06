@@ -2826,13 +2826,13 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("osd_op_num_shards_hdd", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(5)
+    .set_default(1)
     .set_flag(Option::FLAG_STARTUP)
     .set_description("")
     .add_see_also("osd_op_num_shards"),
 
     Option("osd_op_num_shards_ssd", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(8)
+    .set_default(1)
     .set_flag(Option::FLAG_STARTUP)
     .set_description("")
     .add_see_also("osd_op_num_shards"),

@@ -543,6 +543,8 @@ private:
     return (abs_skew > g_conf()->mon_clock_drift_allowed);
   }
 
+  void handle_vmap(MonOpRequestRef op);  // #hong for vmap
+
   /**
    * @}
    */

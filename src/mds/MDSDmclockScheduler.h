@@ -33,6 +33,7 @@
 #include "messages/MClientSession.h"
 #include "messages/MMDSDmclockQoS.h"
 #include "messages/MMDSControllerQoS.h"
+#include "messages/MMDSVMap.h"     // #hong added
 #include "msg/Messenger.h"
 #include "dmclock/src/dmclock_server.h"
 #include "CInode.h"
@@ -41,6 +42,8 @@
 #include "common/Mutex.h"
 
 class ClientRequest;
+
+class MonClient;   // #hong added
 
 using MDSReqRef = MClientRequest::const_ref;
 using crimson::dmclock::ClientInfo;
@@ -185,6 +188,13 @@ public:
   explicit VolumeInfo():
     QoSInfo(0.0, 0.0, 0.0), use_default(true), inflight_requests(0), volume_count(0.0), global_view_factor(0.0)  {};
 
+  std::set<SessionId>& get_session_set()
+  { 
+    // #hong, is this right? does returning a "set" directly work?
+    
+    return session_list;
+  }
+
   int32_t get_session_cnt() const
   {
     return session_list.size();
@@ -328,6 +338,7 @@ private:
   Mutex controller_lock;
   Cond controller_cond;
   bool controller_stop;
+  MonClient* monc;
 
 public:
   static constexpr uint32_t SUBVOL_ROOT_DEPTH = 3;
@@ -340,6 +351,9 @@ public:
   {
     return default_conf;
   }
+
+  // #hong send volume:session map to monitor
+  void send_mon_vsmap();
 
   /* volume QoS info management */
   void create_volume_info(const VolumeId &vid, const ClientInfo &client_info, const bool use_default);
@@ -413,11 +427,18 @@ public:
   Queue::CanHandleRequestFunc can_handle_func;
   Queue::HandleRequestFunc handle_request_func;
 
-  MDSDmclockScheduler(MDSRank *m, const Queue::ClientInfoFunc _client_info_func,
+  MDSDmclockScheduler(MDSRank *m, MonClient *_monc,
+      const Queue::ClientInfoFunc _client_info_func,
       const Queue::CanHandleRequestFunc _can_handle_func,
       const Queue::HandleRequestFunc _handle_request_func) : mds(m),
       controller_lock("MDSDmclockScheduler::controller_lock")
   {
+    if (_monc) {
+      monc = _monc;
+    } else {
+      monc = 0;
+    }
+
     if (_client_info_func) {
       client_info_func = _client_info_func;
     } else {
@@ -455,8 +476,18 @@ public:
     default_conf.set_status(g_conf().get_val<bool>("mds_dmclock_enable"));
   }
 
-  MDSDmclockScheduler(MDSRank *m) :
-    MDSDmclockScheduler(m,
+  // MDSDmclockScheduler(MDSRank *m) :
+  //   MDSDmclockScheduler(m,
+  //     MonClient(),
+  //     Queue::ClientInfoFunc(),
+  //     Queue::CanHandleRequestFunc(),
+  //     Queue::HandleRequestFunc())
+  // {
+  //   // empty
+  // }
+
+  MDSDmclockScheduler(MDSRank *m,  MonClient *monc) :
+    MDSDmclockScheduler(m, monc,
       Queue::ClientInfoFunc(),
       Queue::CanHandleRequestFunc(),
       Queue::HandleRequestFunc())

@@ -1,0 +1,15 @@
+[global]
+name=fio-seq-write
+filename=fio-seq-write
+rw=write
+bs=4K
+direct=1
+numjobs=1
+time_based=1
+runtime=30
+log_avg_msec=250
+
+[file1]
+size=5G
+ioengine=libaio
+iodepth=16

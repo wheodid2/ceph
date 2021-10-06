@@ -61,6 +61,8 @@
 #include "messages/MTimeCheck2.h"
 #include "messages/MPing.h"
 
+#include "messages/MMDSVMap.h"  // #hong
+
 #include "common/strtol.h"
 #include "common/ceph_argparse.h"
 #include "common/Timer.h"
@@ -4489,6 +4491,9 @@ void Monitor::dispatch_op(MonOpRequestRef op)
       /* FIXME: check what's being subscribed, filter accordingly */
       handle_subscribe(op);
       return;
+    case MSG_MDS_MONITOR_VMAP:
+      dout(17) << " MSG_MDS_MONITOR_VAMP" << dendl;
+      handle_vmap(op);
   }
 
   /* well, maybe the op belongs to a service... */
@@ -4668,6 +4673,20 @@ void Monitor::dispatch_op(MonOpRequestRef op)
   dout(1) << "dropping unexpected " << *(op->get_req()) << dendl;
   return;
 }
+
+// #hong 
+void Monitor::handle_vmap(MonOpRequestRef op)
+{
+  MMDSVMap *m = static_cast<MMDSVMap*>(op->get_req());
+  dout(17) << __func__ << " " << *m << dendl;
+  dout(17) << " hong operation " << m->get_sub_op_str() << dendl;
+  
+  std::map<std::string, std::set<std::string>> recv_vs_map = m->get_vi_si_map();
+
+  // update vs_map() in osdmon, one by one?, updating with conditional_variable?
+  // osdmon()->vs_map = ;
+}
+
 
 void Monitor::handle_ping(MonOpRequestRef op)
 {

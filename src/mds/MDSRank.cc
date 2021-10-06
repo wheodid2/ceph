@@ -545,7 +545,10 @@ MDSRank::MDSRank(
   server = new Server(this);
   locker = new Locker(this, mdcache);
 
-  mds_dmclock_scheduler = new MDSDmclockScheduler(this);
+  // mds_dmclock_scheduler = new MDSDmclockScheduler(this);
+  
+  // #hong
+  mds_dmclock_scheduler = new MDSDmclockScheduler(this, monc);
 
   op_tracker.set_complaint_and_threshold(cct->_conf->mds_op_complaint_time,
                                          cct->_conf->mds_op_log_threshold);

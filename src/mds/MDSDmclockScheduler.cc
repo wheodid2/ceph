@@ -15,7 +15,11 @@
 #include "SessionMap.h"
 #include "MDSDmclockScheduler.h"
 #include "mds/MDSMap.h"
+
 //#include "messages/MMDSDmclockQoS.h"
+
+// #hong added
+#include "mon/MonClient.h"
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mds
@@ -279,6 +283,35 @@ GVF MDSDmclockScheduler::get_global_view_factor(const VolumeId &vid)
   ceph_assert(vi!=nullptr);
   return vi->get_global_view_factor();
 }
+
+// #hong;
+void MDSDmclockScheduler::send_mon_vsmap()
+{
+  // make map<volume_id, set<session_id>>
+  std::map<VolumeId, std::set<SessionId>> vs_map;
+  for (auto it = volume_info_map.begin(); it != volume_info_map.end(); it++) {
+    auto vol_id = it->first;
+    auto vol_info = it->second;
+    vs_map[vol_id] = vol_info.get_session_set();  //#now, just try this
+  }
+
+  // make message with vs_map
+  auto m = MMDSVMap::create(
+    // from -> mds->get_nodeid()
+    mds->get_nodeid(),
+    // std::map<volm_id, volume_info>
+    // #check: how to deliver the whole contents of map 
+    vs_map,
+    // sub_op
+    MMDSVMap::REPLY_TO_LEADER
+  );
+
+  // send message to monitor
+  // one thing you have to check is the detach() does work or not.
+  dout(17) << " MMDSVMap "<< dendl;
+  monc->send_mon_message(m.detach());  // define the monc.
+}
+
 
 void MDSDmclockScheduler::create_volume_info(const VolumeId &vid, const ClientInfo &client_info,
                                               const bool use_default)
@@ -684,6 +717,7 @@ void MDSDmclockScheduler::process_request_handler()
     request_queue.erase(request_queue.begin());
 
     dout(10) << __func__ << " Process request type " << request->get_request_type_str() << dendl;
+    send_mon_vsmap();
 
     lock.unlock();
 

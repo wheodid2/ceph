@@ -218,6 +218,15 @@ class OSDMonitor : public PaxosService,
 public:
   OSDMap osdmap;
 
+  /************************************************************/
+  // #hong: session_set, volume_id with string
+  using sset = std::set<std::string>;
+  using volm_id = std::string;
+  std::map<volm_id, sset> vs_map;
+  
+  /************************************************************/
+
+
   // config observer
   const char** get_tracked_conf_keys() const override;
   void handle_conf_change(const ConfigProxy& conf,
