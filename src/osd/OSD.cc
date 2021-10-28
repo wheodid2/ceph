@@ -105,6 +105,8 @@
 #include "messages/MOSDPGUpdateLogMissing.h"
 #include "messages/MOSDPGUpdateLogMissingReply.h"
 #include "messages/MOSDDmclockQoS.h"
+#include "messages/MOSDControllerQoS.h"
+#include "messages/MOSDSVMap.h"
 
 #include "messages/MOSDPeeringOp.h"
 
@@ -7543,7 +7545,16 @@ void OSD::ms_fast_dispatch(Message *m)
     return handle_fast_pg_remove(static_cast<MOSDPGRemove*>(m));
     //  #hong MSG_OSD_MCLOCK_QOS
   case MSG_OSD_DMCLOCK_QOS:
+    dout(17) << "ms_fast_dispatch: MSG_OSD_DMCLOCK_QOS" << dendl;
     handle_qos(static_cast<MOSDDmclockQoS*>(m));
+    return;
+      //  #hong MSG_OSD_CONTROLLER_QOS
+  case MSG_OSD_CONTROLLER_QOS:
+    handle_ctrl_qos(static_cast<MOSDControllerQoS*>(m));
+    return;
+  case MSG_OSD_MONITOR_SVMAP:
+    dout(17) << "ms_fast_dispatch: MSG_OSD_MONITOR_SVMAP" << dendl;
+    handle_svmap(static_cast<MOSDSVMap*>(m));
     return;
 
     // these are single-pg messages that handle themselves
@@ -7725,7 +7736,18 @@ void OSD::_dispatch(Message *m)
 
     //  #hong MSG_OSD_MCLOCK_QOS
   case MSG_OSD_DMCLOCK_QOS:
+    dout(17) << "_dispatch: MSG_OSD_DMCLOCK_QOS" << dendl;
     handle_qos(static_cast<MOSDDmclockQoS*>(m));
+    return;
+
+  //  #hong MSG_OSD_CONTROLLER_QOS
+  case MSG_OSD_CONTROLLER_QOS:
+    handle_ctrl_qos(static_cast<MOSDControllerQoS*>(m));
+    return;
+
+  case MSG_OSD_MONITOR_SVMAP:
+    dout(17) << "_dispatch: MSG_OSD_MONITOR_SVMAP" << dendl;
+    handle_svmap(static_cast<MOSDSVMap*>(m));
     return;
 
     // -- need OSDMap --
@@ -7751,27 +7773,83 @@ void OSD::_dispatch(Message *m)
 }
 
 // #hong handle_qos
-void OSD::handle_qos(MOSDDmclockQoS*m)
+void OSD::handle_qos(MOSDDmclockQoS *m)
 {
-  dout(17) << "handle_qos_kaist, message:  " << m->get_sub_op() << dendl;
-  // anything else???
-  // send to monitor!!!!
-  // how to send the message to mon???
-  
-  /* ref from handle_command
-  ConnectionRef con = m->get_connection();
-  auto priv = con->get_priv();
-  auto session = static_cast<Session *>(priv.get());
-  if (!session) {
-    con->send_message(new MCommandReply(m, -EPERM));
-    m->put();
-    return;
-  }
-  */
+  dout(17) << "handle_qos, message:  " << m->get_sub_op() << dendl;
   // #hong, the bottom comments will be needed for reply to monitor 
   ConnectionRef con = m->get_connection();
   con->send_message(new MOSDDmclockQoS(MOSDDmclockQoS::REPLY_TO_LEADER)); 
   m->put();
+}
+
+// #hong handle_ctrl_qos
+void OSD::handle_ctrl_qos(MOSDControllerQoS*m)
+{
+  dout(17) << __func__ << " sub-operatation: " << m->get_sub_op_str() << dendl;
+
+  switch(m->get_sub_op()) {
+    case MOSDControllerQoS::BROADCAST_NREQ_TO_OSD:
+    {
+      dout(17) << "whoami: " << whoami << dendl;
+      std::map<uint64_t, double> volcnt_map;
+
+      for (auto it = volume_info_map.begin(); it != volume_info_map.end(); it++) {
+	auto vol_info = it->second;
+	if (vol_info.get_volume_count() != 0) {
+	  auto ret = volcnt_map.insert(std::make_pair(it->first, vol_info.get_volume_count()));
+	  dout(10) << "VolumeId: " << it->first << ", before reset VolumeCnt: " << vol_info.get_volume_count() << dendl;
+	  if (ret.second == true) {
+	    reset_volume_count(it->first);
+	    dout(10) << "VolumeId: " << it->first << ", after reset VolumeCnt: " << get_volume_count(it->first) << dendl;
+	  }
+	  else {
+	    dout(10) << "volcnt_map insert fail" << dendl;
+	  }
+	}
+	else {
+	  dout(10) << "VolumeId: " << it->first << ", VolumeCnt is zero" << dendl;
+	}
+      }
+
+      ConnectionRef con = m->get_connection();
+      con->send_message(new MOSDControllerQoS(whoami, volcnt_map, MOSDControllerQoS::REPLY_TO_LEADER)); 
+      m->put();
+      return;
+    }
+    case MOSDControllerQoS::REQUEST_TO_WORK:
+    {
+      std::map<uint64_t, double> gvf_map;
+      gvf_map = m->get_nreq_map();
+      for (auto it = gvf_map.begin(); it != gvf_map.end(); it++) {
+	dout(10) << "Owner: " << it->first << ", gvf: " << it->second << dendl;
+	set_global_view_factor(it->first, it->second);
+      }
+      return;
+    }
+    default:
+      dout(0) << __func__ << "; No handleable sub-op type "<< m->get_sub_op_str() << dendl;
+      //ceph_abort();
+  }
+}
+
+void OSD::handle_svmap(MOSDSVMap *m) {
+  std::string volume_name = m->get_volume_id();
+  uint64_t session_id = stoi(m->get_session_id());
+  uint64_t session_volume_id;
+
+  auto it = volume_id_map.find(volume_name);
+  if (it == volume_id_map.end()) {
+    session_volume_id = volume_id;
+    volume_id_map.insert(std::make_pair(volume_name, volume_id));
+    volume_id++;
+  }
+  else {
+    session_volume_id = it->second;
+  }
+
+  dout(17) << "handle_svmap: volume_name: " << volume_name << ", session_volume_id: " << session_volume_id << ", session_id: " << session_id << dendl;
+
+  set_session_volume_map(session_id, session_volume_id);
 }
 
 // remove me post-nautilus
@@ -10217,6 +10295,24 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
     OpQueueItem(
       unique_ptr<OpQueueItem::OpQueueable>(new PGOpItem(pg, std::move(op))),
       cost, priority, stamp, owner, epoch));
+
+  // #hong count req
+  uint64_t volume_id = get_session_volume_map(owner);
+  auto itr = volume_info_map.find(volume_id);
+
+  if (itr != volume_info_map.end()) {
+    increase_volume_count(volume_id);
+    dout(17) << "volume_info_map (old): session_id: " << owner << ", volume_id: " << volume_id << ", cnt: " << get_volume_count(volume_id) << dendl;
+  } else {
+    auto itr2 = OSD::volume_info_map.insert(std::make_pair(std::move(volume_id), std::move(VolumeInfo())));
+    if (itr2.second == false) {
+      dout(17) << "volume_info_map insertion failed" << dendl;
+    }
+    else {
+      increase_volume_count(volume_id);
+      dout(17) << "volume_info_map (new): session_id: " << owner << ", volume_id: " << volume_id << ", cnt: " << get_volume_count(volume_id) << dendl;
+    }
+  }
 }
 
 void OSD::enqueue_peering_evt(spg_t pgid, PGPeeringEventRef evt)
@@ -11155,6 +11251,51 @@ void OSDShard::unprime_split_children(spg_t parent, unsigned old_pg_num)
 
 
 // =============================================================
+VolumeInfo *OSD::get_volume_info_ptr(uint64_t vid)
+{
+  auto it = volume_info_map.find(vid);
+  if (it != volume_info_map.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
+void OSD::increase_volume_count(uint64_t vid)
+{
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  vi->increase_volume_count();
+}
+
+void OSD::reset_volume_count(uint64_t vid)
+{
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  vi->reset_volume_count();
+}
+
+double OSD::get_volume_count(uint64_t vid)
+{
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  return vi->get_volume_count();
+}
+
+double OSD::get_global_view_factor(uint64_t vid)
+{
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  if (vi == nullptr)
+    return 0.0;
+  return vi->get_global_view_factor();
+}
+
+void OSD::set_global_view_factor(uint64_t vid, double gvf)
+{
+  VolumeInfo* vi = get_volume_info_ptr(vid);
+  ceph_assert(vi!=nullptr);
+  vi->set_global_view_factor(gvf);
+}
+// =============================================================
 
 #undef dout_context
 #define dout_context osd->cct
@@ -11187,6 +11328,7 @@ void OSD::ShardedOpWQ::_add_slot_waiter(
 void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
 {
   uint32_t shard_index = thread_index % osd->num_shards;
+  //dout(20) << __func__ << " thread_index: " << thread_index << " num_shards " << osd->num_shards << dendl;
   auto& sdata = osd->shards[shard_index];
   ceph_assert(sdata);
 
@@ -11250,7 +11392,7 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
     }
 
     work_item = sdata->pqueue->dequeue();
-    dout(20) << __func__ << " pqueue->dequeue() " << dendl;
+    //dout(20) << __func__ << " pqueue->dequeue() " << dendl;
     if (osd->is_stopping()) {
       sdata->shard_lock.unlock();
       for (auto c : oncommits) {
@@ -11262,8 +11404,15 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
 
     // If the work item is scheduled in the future, wait until
     // the time returned in the dequeue response before retrying.
-    //dout(20) << __func__ << " pqueue->future_time " << sdata->pqueue->future_time << dendl;
+    //if (auto time_from_dequeue = std::get_if<double>(&work_item)) {
+    //  dout(20) << __func__ << " dequeue returns double future_time " << *time_from_dequeue << dendl;
+    //}
+    //if (std::get_if<OpQueueItem>(&work_item)) {
+    //  dout(20) << __func__ << " dequeue returen OpQueueItem " << dendl;
+    //}
+
     if (auto when_ready = std::get_if<double>(&work_item)) {
+      //dout(20) << __func__ << " is_smallest_thread_index " << is_smallest_thread_index << dendl;
       if (is_smallest_thread_index) {
         sdata->shard_lock.unlock();
         handle_oncommits(oncommits);
@@ -11271,7 +11420,7 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
       }
       std::unique_lock wait_lock{sdata->sdata_wait_lock};
       auto future_time = ceph::real_clock::from_double(*when_ready);
-      dout(10) << __func__ << " dequeue future request at " << future_time << dendl;
+      dout(20) << __func__ << " dequeue future request at " << future_time << dendl;
       sdata->shard_lock.unlock();
       //++sdata->waiting_threads;
       sdata->sdata_cond.wait_until(wait_lock, future_time);
@@ -11516,13 +11665,28 @@ void OSD::ShardedOpWQ::_enqueue(OpQueueItem&& item) {
   unsigned cost = item.get_cost();
   sdata->shard_lock.lock();
 
+  dout(20) << __func__ << " m_seed " << item.get_ordering_token().pgid.m_seed << " osd->shards.size " << osd->shards.size() << " shard_index " << shard_index << dendl;
+
   dout(20) << __func__ << " " << item << dendl;
-  if (priority >= osd->op_prio_cutoff)
+  if (priority >= osd->op_prio_cutoff) {
+    dout(17) << "op_prio_curoff" << dendl;
     sdata->pqueue->enqueue_strict(
       item.get_owner(), priority, std::move(item));
-  else
-    sdata->pqueue->enqueue(
-      item.get_owner(), priority, cost, std::move(item));
+  }
+  else {
+    dout(17) << "pqueue->enqueue()" << dendl;
+    dout(20) << __func__ << " item.get_owner " << item.get_owner() << dendl;
+    dout(17) << "volume_id from session_id: " << osd->get_session_volume_map(item.get_owner()) << dendl;
+
+    double gvf = osd->get_global_view_factor(osd->get_session_volume_map(item.get_owner()));
+    dout(17) << "gvf: " << gvf << dendl;
+    if (gvf == 0)
+      gvf = 1;
+    //sdata->pqueue->enqueue(
+    sdata->pqueue->enqueue_gvf(
+      //item.get_owner(), priority, cost, std::move(item));
+      osd->get_session_volume_map(item.get_owner()), priority, cost, std::move(item), gvf);
+  }
   sdata->shard_lock.unlock();
 
   std::lock_guard l{sdata->sdata_wait_lock};

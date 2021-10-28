@@ -313,6 +313,10 @@ namespace ceph {
       queue_front.emplace_front(std::pair<K,T>(cl, std::move(item)));
     }
 
+    void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) {
+      queue.add_request(std::move(item), cl, {(uint32_t)gvf-1, (uint32_t)gvf-1}, cost);
+    }
+
     bool empty() const override final {
       return queue.empty() && high_queue.empty() && queue_front.empty();
     }
@@ -338,25 +342,9 @@ namespace ceph {
       auto result = queue.pull_request();
       // DY: if a request is for "future", save future_time.
       //ceph_assert(pr.is_retn());
-      /*
-      if (pr.is_future()) {
-        std::cout << " is_future " << std::endl;
-	future_time = pr.getTime();
-      }
-      else if (pr.is_retn()) {
-	std::cout << " is_return " << std::endl;
-	future_time = 0;
-      }
-      else {
-	std::cout << " is_else " << std::endl;
-	ceph_assert(
-	  0 == "Impossible, must have checked empty() first");
-      }
-      auto& retn = pr.get_retn();
-      return std::move(*(retn.request));
-      */
-
       if (result.is_future()) {
+	//ceph_assert(
+  	//0 == "result.is_future == true");
         return result.getTime();
       } else if (result.is_none()) {
         ceph_assert(

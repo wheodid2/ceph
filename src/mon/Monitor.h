@@ -544,7 +544,9 @@ private:
   }
 
 // #hong
-void handle_osd_qos(MonOpRequestRef op);;
+void handle_osd_qos(MonOpRequestRef op);
+void handle_osd_ctrl_qos(MonOpRequestRef op);
+void handle_svmap(MonOpRequestRef op);
   /**
    * @}
    */

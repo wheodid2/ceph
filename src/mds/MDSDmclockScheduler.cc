@@ -15,6 +15,7 @@
 #include "SessionMap.h"
 #include "MDSDmclockScheduler.h"
 #include "mds/MDSMap.h"
+#include "mon/MonClient.h"
 //#include "messages/MMDSDmclockQoS.h"
 
 #define dout_context g_ceph_context
@@ -74,11 +75,40 @@ void MDSDmclockScheduler::enqueue_client_request(const R &mds_req, VolumeId volu
   queue_cvar.notify_all();
 }
 
+void MDSDmclockScheduler::send_mon_svmap(Session *session) {
+  SessionId sid = get_session_id(session);
+
+  std::unordered_set<SessionId>::const_iterator p = session_us.find(sid);
+  if (p == session_us.end()) {
+    session_us.insert(sid);
+    VolumeId vid = get_volume_id(session);
+	  
+    auto m = MMDSSVMap::create(
+      mds->get_nodeid(),
+      sid,
+      vid
+    );
+
+    // send message to monitor
+    // one thing you have to check is the detach() does work or not.
+    dout(17) << __func__ << " volume_id: " << vid << " , session_id: " << sid << dendl;
+    monc->send_mon_message(m.detach());  // define the monc.
+
+    // send to other MDSs.
+    /*
+    auto qos_msg = MDSDmclockQoS::create(mds->get_nodeid(), convert_subvol_root(vid),
+          dmclock_info_t(), MDSDmclockQoS::PATH_TRAVERSE);
+      mds->send_message_mds(qos_msg, mds->get_nodeid());*/
+  }
+}
+
 void MDSDmclockScheduler::handle_mds_request(const MDSReqRef &mds_req)
 {
   ceph_assert(mds_is_locked_by_me());
   dout(10) << __func__ << " " << *mds_req << dendl;
+  dout(10) << __func__ << " volume_id: " << get_volume_id(mds->get_session(mds_req)) << " , session_id: " << get_session_id(mds->get_session(mds_req))<< dendl;
 
+  send_mon_svmap(mds->get_session(mds_req));
   if (mds->mds_dmclock_scheduler->default_conf.is_enabled() == true
       && mds_req->get_orig_source().is_client()) {
     auto volume_id = get_volume_id(mds->get_session(mds_req));

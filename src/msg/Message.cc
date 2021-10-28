@@ -94,6 +94,8 @@
 #include "messages/MOSDPGRecoveryDeleteReply.h"
 #include "messages/MOSDPGReadyToMerge.h"
 #include "messages/MOSDDmclockQoS.h"  // #hong
+#include "messages/MMDSSVMap.h"
+#include "messages/MOSDSVMap.h"
 
 #include "messages/MRemoveSnaps.h"
 
@@ -170,6 +172,7 @@
 #include "messages/MHeartbeat.h"
 #include "messages/MMDSDmclockQoS.h"
 #include "messages/MMDSControllerQoS.h"
+#include "messages/MOSDControllerQoS.h"
 
 #include "messages/MMDSTableRequest.h"
 
@@ -598,6 +601,10 @@ Message *decode_message(CephContext *cct, int crcflags,
   case MSG_OSD_DMCLOCK_QOS:
     m = MOSDDmclockQoS::create();
     break;
+  
+  case MSG_OSD_MONITOR_SVMAP:
+    m = MOSDSVMap::create();
+    break;
 
    // auth
   case CEPH_MSG_AUTH:
@@ -817,6 +824,14 @@ Message *decode_message(CephContext *cct, int crcflags,
   
   case MSG_MDS_CONTROLLER_QOS:
     m = MMDSControllerQoS::create();
+    break;
+
+  case MSG_OSD_CONTROLLER_QOS:
+    m = MOSDControllerQoS::create();
+    break;
+    
+  case MSG_MDS_MONITOR_SVMAP:
+    m = MMDSSVMap::create();
     break;
 
   case MSG_MGR_BEACON:

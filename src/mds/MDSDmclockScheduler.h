@@ -19,6 +19,7 @@
 #include <chrono>
 #include <functional>
 #include <map>
+#include <unordered_set>
 #include <mutex>
 #include <deque>
 #include <vector>
@@ -33,6 +34,7 @@
 #include "messages/MClientSession.h"
 #include "messages/MMDSDmclockQoS.h"
 #include "messages/MMDSControllerQoS.h"
+#include "messages/MMDSSVMap.h"
 #include "msg/Messenger.h"
 #include "dmclock/src/dmclock_server.h"
 #include "CInode.h"
@@ -41,6 +43,7 @@
 #include "common/Mutex.h"
 
 class ClientRequest;
+class MonClient;
 
 using MDSReqRef = MClientRequest::const_ref;
 using crimson::dmclock::ClientInfo;
@@ -323,11 +326,14 @@ private:
   MDSRank *mds;
   Queue *dmclock_queue;
   std::map<VolumeId, VolumeInfo> volume_info_map;
+  std::unordered_set<SessionId> session_us;
   mutable std::mutex volume_info_lock;
 
   Mutex controller_lock;
   Cond controller_cond;
   bool controller_stop;
+
+  MonClient* monc;
 
 public:
   static constexpr uint32_t SUBVOL_ROOT_DEPTH = 3;
@@ -350,6 +356,7 @@ public:
   bool check_volume_info_existence(const VolumeId &vid);
   void delete_session_from_volume_info(const VolumeId &vid, const SessionId &sid);
   void set_default_volume_info(const VolumeId &vid);
+  void send_mon_svmap(Session *session);
   void dump(Formatter *f) const;
 
   void add_session(Session *session);
@@ -462,6 +469,19 @@ public:
       Queue::HandleRequestFunc())
   {
     // empty
+  }
+
+  MDSDmclockScheduler(MDSRank *m, MonClient *_monc) :
+    MDSDmclockScheduler(m,
+      Queue::ClientInfoFunc(),
+      Queue::CanHandleRequestFunc(),
+      Queue::HandleRequestFunc())
+  {
+    if (_monc) {
+      monc = _monc;
+    } else {
+      monc = NULL;
+    }
   }
 
   ~MDSDmclockScheduler();

@@ -268,6 +268,10 @@ public:
     create_queue(priority)->enqueue_front(cl, cost, std::move(item));
   }
 
+  void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) final {
+    // empty
+  }
+
   bool empty() const final {
     ceph_assert(total_priority >= 0);
     ceph_assert((total_priority == 0) || !(queue.empty()));

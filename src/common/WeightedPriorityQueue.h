@@ -326,6 +326,9 @@ class WeightedPriorityQueue :  public OpQueue <T, K, D>
     void enqueue_front(K cl, unsigned p, unsigned cost, T&& item) final {
       normal.insert(p, cl, cost, std::move(item), true);
     }
+    void enqueue_gvf(K cl, unsigned p, unsigned cost, T&& item, double gvf) final {
+      normal.insert(p, cl, cost, std::move(item));
+    }
     T dequeue() override {
       ceph_assert(!empty());
       if (!strict.empty()) {

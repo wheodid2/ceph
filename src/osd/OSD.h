@@ -1266,6 +1266,41 @@ struct OSDShard {
   }
 };
 
+class VolumeInfo {
+private:
+  double volume_count;
+  double global_view_factor;
+
+public:
+  explicit VolumeInfo():
+    volume_count(0.0), global_view_factor(0.0) {};
+
+  double get_volume_count() const
+  {
+    return volume_count;
+  }
+
+  void increase_volume_count()
+  {
+    volume_count++;
+  }
+
+  void reset_volume_count()
+  {
+    volume_count = 0.0;
+  }
+
+  double get_global_view_factor() const
+  {
+    return global_view_factor;
+  }
+
+  void set_global_view_factor(double gvf)
+  {
+    global_view_factor = gvf;
+  }
+};
+
 class OSD : public Dispatcher,
 	    public md_config_obs_t {
   /** OSD **/
@@ -1315,6 +1350,20 @@ protected:
 
   bool store_is_rotational = true;
   bool journal_is_rotational = true;
+
+  std::map<uint64_t, VolumeInfo> volume_info_map;
+
+  std::map<uint64_t, VolumeInfo> &get_volume_info_map()
+  {
+    return volume_info_map;
+  }
+
+VolumeInfo *get_volume_info_ptr(uint64_t vid);
+void increase_volume_count(uint64_t vid);
+void reset_volume_count(uint64_t vid);
+double get_volume_count(uint64_t vid);
+double get_global_view_factor(uint64_t vid);
+void set_global_view_factor(uint64_t vid, double gvf);
 
   ZTracer::Endpoint trace_endpoint;
   void create_logger();
@@ -1880,6 +1929,18 @@ protected:
   friend class OSDShard;
   friend class PrimaryLogPG;
 
+  uint64_t volume_id = 0;
+  std::map<std::string, uint64_t> volume_id_map;
+  std::map<uint64_t, uint64_t> session_volume_map;
+
+  uint64_t get_session_volume_map(uint64_t session_id) {
+    return session_volume_map[session_id];
+  }
+
+  void set_session_volume_map(uint64_t session_id, uint64_t session_volume_id) {
+    session_volume_map.insert(std::make_pair(session_id, session_volume_id));
+  }
+
 
  protected:
 
@@ -2329,7 +2390,9 @@ private:
 			ObjectStore *store,
 			uuid_d& cluster_fsid, uuid_d& osd_fsid, int whoami);
 
-  void handle_qos(struct MOSDDmclockQoS*m); // #hong handle_qos added
+  void handle_qos(struct MOSDDmclockQoS*m); // #hong
+  void handle_ctrl_qos(struct MOSDControllerQoS*m); // #hong
+  void handle_svmap(struct MOSDSVMap *m);
   void handle_scrub(struct MOSDScrub *m);
   void handle_fast_scrub(struct MOSDScrub2 *m);
   void handle_osd_ping(class MOSDPing *m);

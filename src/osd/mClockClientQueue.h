@@ -94,6 +94,12 @@ namespace ceph {
 		       unsigned cost,
 		       Request&& item) override final;
 
+    void enqueue_gvf(Client cl,
+		 unsigned priority,
+		 unsigned cost,
+		 Request&& item,
+     double gvf) override final;
+
     // Return an op to be dispatch
     WorkItem dequeue() override final;
 

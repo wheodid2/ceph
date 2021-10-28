@@ -44,7 +44,7 @@ namespace ceph {
   const dmc::ClientInfo* mClockClientQueue::op_class_client_info_f(
     const mClockClientQueue::InnerClient& client)
   {
-    return client_info_mgr.get_client_info(client.second);
+    return client_info_mgr.get_client_info(client.first, client.second);
   }
 
   mClockClientQueue::InnerClient
@@ -88,6 +88,14 @@ namespace ceph {
 					       Request&& item) {
     queue.enqueue_front(get_inner_client(cl, item), priority, 1u,
 			std::move(item));
+  }
+
+  inline void mClockClientQueue::enqueue_gvf(Client cl,
+					 unsigned priority,
+					 unsigned cost,
+					 Request&& item,
+           double gvf) {
+    queue.enqueue_gvf(get_inner_client(cl, item), priority, 1u, std::move(item), gvf);
   }
 
   // Return an op to be dispatched

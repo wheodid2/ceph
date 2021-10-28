@@ -13,6 +13,7 @@ if [ -n "$VSTART_DEST" ]; then
 
   CEPH_CONF_PATH=$VSTART_DEST
   CEPH_DEV_DIR=$VSTART_DEST/dev
+  CEPH_MNT_DIR="/home/daeyang/mnt/ceph_ssd_"
   CEPH_OUT_DIR=$VSTART_DEST/out
   CEPH_ASOK_DIR=$VSTART_DEST/out
 fi
@@ -90,7 +91,7 @@ else
 fi
 
 [ -z "$CEPH_NUM_MON" ] && CEPH_NUM_MON=1
-[ -z "$CEPH_NUM_OSD" ] && CEPH_NUM_OSD=1
+[ -z "$CEPH_NUM_OSD" ] && CEPH_NUM_OSD=20
 [ -z "$CEPH_NUM_MDS" ] && CEPH_NUM_MDS=1
 [ -z "$CEPH_NUM_MGR" ] && CEPH_NUM_MGR=1
 [ -z "$CEPH_NUM_FS"  ] && CEPH_NUM_FS=1
@@ -99,6 +100,7 @@ fi
 
 [ -z "$CEPH_DIR" ] && CEPH_DIR="$PWD"
 [ -z "$CEPH_DEV_DIR" ] && CEPH_DEV_DIR="$CEPH_DIR/dev"
+[ -z "$CEPH_MNT_DIR" ] && CEPH_MNT_DIR="/home/daeyang/mnt/ceph_ssd_"
 [ -z "$CEPH_OUT_DIR" ] && CEPH_OUT_DIR="$CEPH_DIR/out"
 [ -z "$CEPH_RGW_PORT" ] && CEPH_RGW_PORT=8000
 [ -z "$CEPH_CONF_PATH" ] && CEPH_CONF_PATH=$CEPH_DIR
@@ -565,10 +567,10 @@ EOF
         bluestore_spdk_mem = 2048
         bluestore_block_path = spdk:$(get_pci_selector)"
             else
-                BLUESTORE_OPTS="        bluestore block db path = $CEPH_DEV_DIR/osd\$id/block.db.file
+                BLUESTORE_OPTS="        bluestore block db path = $CEPH_MNT_DIR\$id/block.db.file
         bluestore block db size = 1073741824
         bluestore block db create = true
-        bluestore block wal path = $CEPH_DEV_DIR/osd\$id/block.wal.file
+        bluestore block wal path = $CEPH_MNT_DIR\$id/block.wal.file
         bluestore block wal size = 1048576000
         bluestore block wal create = true"
             fi
@@ -602,8 +604,8 @@ $extra_conf
 [osd]
 $DAEMONOPTS
         osd_check_max_object_name_len_on_startup = false
-        osd data = $CEPH_DEV_DIR/osd\$id
-        osd journal = $CEPH_DEV_DIR/osd\$id/journal
+        osd data = $CEPH_MNT_DIR\$id
+        osd journal = $CEPH_MNT_DIR\$id/journal
         osd journal size = 100
         osd class tmp = out
         osd class dir = $OBJCLASS_PATH
@@ -739,27 +741,27 @@ start_osd() {
         host = $HOSTNAME
 EOF
 
-            rm -rf $CEPH_DEV_DIR/osd$osd || true
+            rm -rf $CEPH_MNT_DIR$osd || true
             if command -v btrfs > /dev/null; then
-                for f in $CEPH_DEV_DIR/osd$osd/*; do btrfs sub delete $f &> /dev/null || true; done
+                for f in $CEPH_MNT_DIR$osd/*; do btrfs sub delete $f &> /dev/null || true; done
             fi
 	    if [ -n "$filestore_path" ]; then
-		ln -s $filestore_path $CEPH_DEV_DIR/osd$osd
+		ln -s $filestore_path $CEPH_MNT_DIR$osd
 	    elif [ -n "$kstore_path" ]; then
-		ln -s $kstore_path $CEPH_DEV_DIR/osd$osd
+		ln -s $kstore_path $CEPH_MNT_DIR$osd
 	    else
-		mkdir -p $CEPH_DEV_DIR/osd$osd
+		mkdir -p $CEPH_MNT_DIR$osd
 	    fi
 
             local uuid=`uuidgen`
             echo "add osd$osd $uuid"
 	    OSD_SECRET=$($CEPH_BIN/ceph-authtool --gen-print-key)
-	    echo "{\"cephx_secret\": \"$OSD_SECRET\"}" > $CEPH_DEV_DIR/osd$osd/new.json
-            ceph_adm osd new $uuid -i $CEPH_DEV_DIR/osd$osd/new.json
-	    rm $CEPH_DEV_DIR/osd$osd/new.json
+	    echo "{\"cephx_secret\": \"$OSD_SECRET\"}" > $CEPH_MNT_DIR$osd/new.json
+            ceph_adm osd new $uuid -i $CEPH_MNT_DIR$osd/new.json
+	    rm $CEPH_MNT_DIR$osd/new.json
             $SUDO $CEPH_BIN/ceph-osd -i $osd $ARGS --mkfs --key $OSD_SECRET --osd-uuid $uuid
 
-            local key_fn=$CEPH_DEV_DIR/osd$osd/keyring
+            local key_fn=$CEPH_MNT_DIR$osd/keyring
 	    cat > $key_fn<<EOF
 [osd.$osd]
 	key = $OSD_SECRET
@@ -944,7 +946,7 @@ fi
 [ -z "$INIT_CEPH" ] && INIT_CEPH=$CEPH_BIN/init-ceph
 
 # sudo if btrfs
-test -d $CEPH_DEV_DIR/osd0/. && test -e $CEPH_DEV_DIR/sudo && SUDO="sudo"
+#test -d ${CEPH_MNT_DIR}0/. && test -e $CEPH_DEV_DIR/sudo && SUDO="sudo"
 
 prun $SUDO rm -f core*
 

@@ -50,6 +50,7 @@ class OpQueue {
     // Enqueue the op in the front of the regular queue
     virtual void enqueue_front(
       K cl, unsigned priority, unsigned cost, T &&item) = 0;
+    virtual void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) = 0;
     // Returns if the queue is empty
     virtual bool empty() const = 0;
     // Return an op to be dispatch

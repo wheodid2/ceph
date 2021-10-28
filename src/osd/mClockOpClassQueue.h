@@ -111,6 +111,18 @@ namespace ceph {
 			  std::move(item));
     }
 
+    inline void enqueue_gvf(Client cl,
+			unsigned priority,
+			unsigned cost,
+			Request&& item,
+      double gvf) override final {
+      queue.enqueue_gvf(client_info_mgr.osd_op_type(item),
+		    priority,
+		    1u,
+		    std::move(item),
+        gvf);
+    }
+
     // Returns if the queue is empty
     inline bool empty() const override final {
       return queue.empty();
