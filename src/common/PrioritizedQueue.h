@@ -244,6 +244,10 @@ public:
     }
   }
 
+  void update_qos_info(K cl, int qos_type, double qos_val) {
+    // empty
+  }
+
   void enqueue_strict(K cl, unsigned priority, T&& item) final {
     high_queue[priority].enqueue(cl, 0, std::move(item));
   }

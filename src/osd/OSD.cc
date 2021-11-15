@@ -7546,7 +7546,7 @@ void OSD::ms_fast_dispatch(Message *m)
     //  #hong MSG_OSD_MCLOCK_QOS
   case MSG_OSD_DMCLOCK_QOS:
     dout(17) << "ms_fast_dispatch: MSG_OSD_DMCLOCK_QOS" << dendl;
-    handle_qos(static_cast<MOSDDmclockQoS*>(m));
+    handle_osd_qos_update(static_cast<MOSDDmclockQoS*>(m));
     return;
       //  #hong MSG_OSD_CONTROLLER_QOS
   case MSG_OSD_CONTROLLER_QOS:
@@ -7737,7 +7737,7 @@ void OSD::_dispatch(Message *m)
     //  #hong MSG_OSD_MCLOCK_QOS
   case MSG_OSD_DMCLOCK_QOS:
     dout(17) << "_dispatch: MSG_OSD_DMCLOCK_QOS" << dendl;
-    handle_qos(static_cast<MOSDDmclockQoS*>(m));
+    handle_osd_qos_update(static_cast<MOSDDmclockQoS*>(m));
     return;
 
   //  #hong MSG_OSD_CONTROLLER_QOS
@@ -7772,14 +7772,54 @@ void OSD::_dispatch(Message *m)
   }
 }
 
-// #hong handle_qos
-void OSD::handle_qos(MOSDDmclockQoS *m)
+// #hong handle_osd_qos_update
+void OSD::handle_osd_qos_update(MOSDDmclockQoS *m)
 {
-  dout(17) << "handle_qos, message:  " << m->get_sub_op() << dendl;
-  // #hong, the bottom comments will be needed for reply to monitor 
-  ConnectionRef con = m->get_connection();
-  con->send_message(new MOSDDmclockQoS(MOSDDmclockQoS::REPLY_TO_LEADER)); 
-  m->put();
+  dout(17) << __func__ << ", sub-operation:  " << m->get_sub_op_str() << dendl;
+
+  string qos_info = m->get_qos_info();
+  size_t offset = qos_info.find(":");
+  string volume_name = qos_info.substr(0, offset);
+  double qos_val = stod(qos_info.substr(offset+1, qos_info.length()-offset-1));
+
+  uint64_t volume_id;
+  auto it = volume_id_map.find(volume_name);
+  if (it == volume_id_map.end()) {
+    dout(0) << __func__ << ", no volume_name: " << volume_name << dendl;
+  }
+  else {
+    volume_id = it->second;
+  }
+  dout(17) << __func__ << ", volume_name: " << volume_name << ", volume_id: " << volume_id << ", qos_val: " << qos_val << dendl;
+  dout(17) <<__func__ << ", num_shards: " << num_shards << dendl;
+
+  for (uint32_t i=0; i<num_shards; i++) {
+    OSDShard* sdata = shards[i];
+
+    switch(m->get_sub_op()) {
+      case MOSDDmclockQoS::DMCLOCK_RESERVATION:
+      {
+        dout(17) << __func__ << ", MOSDDmclockQoS::DMCLOCK_RESERVATION" << dendl;
+        sdata->pqueue->update_qos_info(volume_id, 0, qos_val);
+        break;
+      }
+      case MOSDDmclockQoS::DMCLOCK_WEIGHT:
+      {
+        dout(17) << __func__ << ", MOSDDmclockQoS::DMCLOCK_WEIGHT" << dendl;
+        sdata->pqueue->update_qos_info(volume_id, 1, qos_val);
+        break;
+      }
+      case MOSDDmclockQoS::DMCLOCK_LIMIT:
+      {
+        dout(17) << __func__ << ", MOSDDmclockQoS::DMCLOCK_LIMIT" << dendl;
+        sdata->pqueue->update_qos_info(volume_id, 2, qos_val);
+        break;
+      }
+      default:
+        dout(0) << __func__ << "; No handleable sub-op type "<< m->get_sub_op_str() << dendl;
+        break;
+    }
+  }
 }
 
 // #hong handle_ctrl_qos
@@ -10566,6 +10606,9 @@ void OSD::handle_conf_change(const ConfigProxy& conf,
     dout(0) << __func__ << ": scrub interval change" << dendl;
   }
   check_config();
+
+  // TODO: Do we need to check whether the queue is mClockClientQueue or not?
+  //check_qos_info();
 }
 
 void OSD::update_log_config()
@@ -10599,6 +10642,14 @@ void OSD::check_config()
 		 << " is not > osd_pg_epoch_persisted_max_stale ("
 		 << cct->_conf->osd_pg_epoch_persisted_max_stale << ")";
   }
+}
+
+void OSD::check_qos_info()
+{
+  // Find target volume_id with volume_name
+
+  // Update its qos_info
+
 }
 
 // --------------------------------

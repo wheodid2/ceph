@@ -293,6 +293,10 @@ namespace ceph {
       }
     }
 
+    void update_qos_info(K cl, int qos_type, double qos_val) override final {
+      // empty
+    }
+
     void enqueue_strict(K cl, unsigned priority, T&& item) override final {
       high_queue[priority].enqueue(cl, 1, std::move(item));
     }
@@ -313,7 +317,7 @@ namespace ceph {
       queue_front.emplace_front(std::pair<K,T>(cl, std::move(item)));
     }
 
-    void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) {
+    void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) override final {
       queue.add_request(std::move(item), cl, {(uint32_t)gvf-1, (uint32_t)gvf-1}, cost);
     }
 

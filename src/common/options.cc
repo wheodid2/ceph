@@ -1546,6 +1546,21 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description("calculate all PG mappings if estimated fraction of PGs that change is above this amount"),
 
+    Option("mon_osd_dmclock_reservation", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_service("mon")
+    .set_description(""),
+
+    Option("mon_osd_dmclock_weight", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_service("mon")
+    .set_description(""),
+
+    Option("mon_osd_dmclock_limit", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_service("mon")
+    .set_description(""),
+
     Option("mon_stat_smooth_intervals", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(6)
     .set_min(1)

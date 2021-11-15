@@ -51,17 +51,16 @@ namespace ceph {
 
       OpClassClientInfoMgr(CephContext *cct);
 
-      inline const crimson::dmclock::ClientInfo*
+      inline crimson::dmclock::ClientInfo*
       get_client_info(VolumeId vid, osd_op_type_t type) {
 	switch(type) {
 	case osd_op_type_t::client_op: {
 	  // Find proper ClientInfo for the specified volume Id
-	  //auto ret = client_infos.find(client);
-	  //if (ret == client_infos.end())
-	  //  return &default_client_info;
-	  //else
-	  //  return &(ret->second);
-	  return &client_op;
+	  auto ret = client_infos.find(vid);
+	  if (ret == client_infos.end())
+	    return &client_op;
+	  else
+	    return &(ret->second);
 	}
 	case osd_op_type_t::osd_rep_op:
 	  return &osd_rep_op;
@@ -101,6 +100,21 @@ namespace ceph {
 	  ceph_abort();
 	}
       }
+
+      inline bool check_client_info(VolumeId vid, osd_op_type_t type) {
+	auto ret = client_infos.find(vid);
+	  if (ret == client_infos.end())
+	    return false;
+	  else
+	    return true;
+      }
+
+	  void add_client_info(VolumeId vid, osd_op_type_t type) {
+	crimson::dmclock::ClientInfo client_qos_info(client_op.reservation,
+		client_op.weight,
+		client_op.limit);
+	client_infos.insert(make_pair(vid, client_qos_info));
+    }
 
       osd_op_type_t osd_op_type(const OpQueueItem&) const;
 

@@ -311,6 +311,9 @@ class WeightedPriorityQueue :  public OpQueue <T, K, D>
       strict.filter_class(cl, removed);
       normal.filter_class(cl, removed);
     }
+    void update_qos_info(K cl, int qos_type, double qos_val) final {
+      // empty
+    }
     bool empty() const final {
       return strict.empty() && normal.empty();
     }

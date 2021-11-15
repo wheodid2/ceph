@@ -356,6 +356,7 @@ private:
   void _set_new_cache_sizes();
   void _set_cache_autotuning();
   int _update_mon_cache_settings();
+  void _broadcast_osd_qos_update(uint8_t qos_type, const string& qos_info);
 
   friend struct OSDMemCache;
   friend struct IncCache;

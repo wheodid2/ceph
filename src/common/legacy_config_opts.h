@@ -230,6 +230,9 @@ OPTION(mon_osd_err_op_age_ratio, OPT_DOUBLE)  // when to generate an error, as m
 OPTION(mon_osd_prime_pg_temp, OPT_BOOL)  // prime osdmap with pg mapping changes
 OPTION(mon_osd_prime_pg_temp_max_time, OPT_FLOAT)  // max time to spend priming
 OPTION(mon_osd_prime_pg_temp_max_estimate, OPT_FLOAT) // max estimate of pg total before we do all pgs in parallel
+OPTION(mon_osd_dmclock_reservation, OPT_STR)
+OPTION(mon_osd_dmclock_weight, OPT_STR)
+OPTION(mon_osd_dmclock_limit, OPT_STR)
 OPTION(mon_election_timeout, OPT_FLOAT)  // on election proposer, max waiting time for all ACKs
 OPTION(mon_lease, OPT_FLOAT)       // lease interval
 OPTION(mon_lease_renew_interval_factor, OPT_FLOAT) // on leader, to renew the lease

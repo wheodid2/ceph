@@ -61,7 +61,6 @@
 #include "messages/MTimeCheck2.h"
 #include "messages/MPing.h"
 
-#include "messages/MOSDDmclockQoS.h"
 #include "messages/MOSDControllerQoS.h"
 #include "messages/MMDSSVMap.h"
 
@@ -4495,10 +4494,6 @@ void Monitor::dispatch_op(MonOpRequestRef op)
       handle_subscribe(op);
       return;
     
-    case MSG_OSD_DMCLOCK_QOS:
-      handle_osd_qos(op);
-      return;
-
     case MSG_OSD_CONTROLLER_QOS:
       handle_osd_ctrl_qos(op);
       return;
@@ -4681,14 +4676,6 @@ void Monitor::dispatch_op(MonOpRequestRef op)
   }
   dout(1) << "dropping unexpected " << *(op->get_req()) << dendl;
   return;
-}
-
-void Monitor::handle_osd_qos(MonOpRequestRef op)
-{
-  MOSDDmclockQoS *m = static_cast<MOSDDmclockQoS*>(op->get_req());
-  dout(27) << __func__ << " " << *m << dendl;
-  dout(17) << " operation " << m->get_sub_op_str() << dendl;
-  
 }
 
 void Monitor::handle_osd_ctrl_qos(MonOpRequestRef op)

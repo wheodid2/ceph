@@ -90,8 +90,8 @@ else
     kill_all=0
 fi
 
-[ -z "$CEPH_NUM_MON" ] && CEPH_NUM_MON=1
-[ -z "$CEPH_NUM_OSD" ] && CEPH_NUM_OSD=20
+[ -z "$CEPH_NUM_MON" ] && CEPH_NUM_MON=2
+[ -z "$CEPH_NUM_OSD" ] && CEPH_NUM_OSD=3
 [ -z "$CEPH_NUM_MDS" ] && CEPH_NUM_MDS=1
 [ -z "$CEPH_NUM_MGR" ] && CEPH_NUM_MGR=1
 [ -z "$CEPH_NUM_FS"  ] && CEPH_NUM_FS=1

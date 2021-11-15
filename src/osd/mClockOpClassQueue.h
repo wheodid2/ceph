@@ -72,6 +72,10 @@ namespace ceph {
 	});
     }
 
+    void update_qos_info(Client cl, int qos_type, double qos_val) {
+      // empty
+    }
+
     inline void enqueue_strict(Client cl,
 			       unsigned priority,
 			       Request&& item) override final {

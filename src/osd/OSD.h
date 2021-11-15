@@ -1319,6 +1319,7 @@ public:
                           const std::set <std::string> &changed) override;
   void update_log_config();
   void check_config();
+  void check_qos_info();
 
 protected:
 
@@ -1930,7 +1931,9 @@ protected:
   friend class PrimaryLogPG;
 
   uint64_t volume_id = 0;
+  // std::map<volume_path, volume_id>
   std::map<std::string, uint64_t> volume_id_map;
+  // std::map<session_id(owner), volume_id>
   std::map<uint64_t, uint64_t> session_volume_map;
 
   uint64_t get_session_volume_map(uint64_t session_id) {
@@ -2390,7 +2393,7 @@ private:
 			ObjectStore *store,
 			uuid_d& cluster_fsid, uuid_d& osd_fsid, int whoami);
 
-  void handle_qos(struct MOSDDmclockQoS*m); // #hong
+  void handle_osd_qos_update(struct MOSDDmclockQoS*m); // #hong
   void handle_ctrl_qos(struct MOSDControllerQoS*m); // #hong
   void handle_svmap(struct MOSDSVMap *m);
   void handle_scrub(struct MOSDScrub *m);

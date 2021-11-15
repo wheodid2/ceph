@@ -53,6 +53,33 @@ namespace ceph {
     return InnerClient(cl, client_info_mgr.osd_op_type(request));
   }
 
+
+  inline void mClockClientQueue::update_qos_info(Client cl,
+  						 int qos_type,
+						 double qos_val) {
+    dmc::ClientInfo* qos_info;
+    if (client_info_mgr.check_client_info(cl, osd_op_type_t::client_op)) {
+      qos_info = client_info_mgr.get_client_info(cl, osd_op_type_t::client_op);
+    }
+    else {
+      client_info_mgr.add_client_info(cl, osd_op_type_t::client_op);
+      qos_info = client_info_mgr.get_client_info(cl, osd_op_type_t::client_op);
+    }
+    switch(qos_type) {
+      case 0:
+        qos_info->update(qos_val, qos_info->weight, qos_info->limit);
+	break;
+      case 1:
+        qos_info->update(qos_info->reservation, qos_val, qos_info->limit);
+	break;
+      case 2:
+        qos_info->update(qos_info->reservation, qos_info->weight, qos_val);
+	break;
+      default:
+        break;
+    }
+  }
+
   // Formatted output of the queue
   inline void mClockClientQueue::dump(ceph::Formatter *f) const {
     queue.dump(f);

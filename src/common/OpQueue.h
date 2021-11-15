@@ -41,6 +41,7 @@ class OpQueue {
     // the queue in *reverse* order and to use *push_front* to insert
     // them into out.
     virtual void remove_by_class(K k, std::list<T> *out) = 0;
+    virtual void update_qos_info(K cl, int qos_type, double qos_val) = 0;
     // Enqueue op in the back of the strict queue
     virtual void enqueue_strict(K cl, unsigned priority, T &&item) = 0;
     // Enqueue op in the front of the strict queue

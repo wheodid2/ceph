@@ -590,9 +590,7 @@ void OSDMonitor::broadcast_qos(std::map<OSD_Num, std::map<OwnerID, ReqCnt>> big_
   for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
     dout(17)<< "in for a loop "<< p->first <<dendl;
     if (osdmap.is_up(p->first)) {
-      //MOSDDmclockQoS* qos_msg = new MOSDDmclockQoS(MOSDDmclockQoS::BROADCAST_TO_ALL);
       gvf_map = big_gvf_map[p->first];
-      //auto qos_msg = MOSDControllerQoS::create(p->first, gvf_map, MOSDControllerQoS::BROADCAST_TO_ALL);
       MOSDControllerQoS* qos_msg = new MOSDControllerQoS(p->first, gvf_map, MOSDControllerQoS::REQUEST_TO_WORK);
 
       s = p->second;
@@ -629,6 +627,9 @@ const char **OSDMonitor::get_tracked_conf_keys() const
     "mon_memory_target",
     "mon_memory_autotune",
     "rocksdb_cache_size",
+    "mon_osd_dmclock_reservation",
+    "mon_osd_dmclock_weight",
+    "mon_osd_dmclock_limit",
     NULL
   };
   return KEYS;
@@ -653,6 +654,19 @@ void OSDMonitor::handle_conf_change(const ConfigProxy& conf,
            << ". Unable to update cache size."
            << dendl;
     }
+  }
+
+  if (changed.count("mon_osd_dmclock_reservation")) {
+    string qos_info = g_conf()->mon_osd_dmclock_reservation;
+    _broadcast_osd_qos_update(0, qos_info);
+  }
+  if (changed.count("mon_osd_dmclock_weight")) {
+    string qos_info = g_conf()->mon_osd_dmclock_weight;
+    _broadcast_osd_qos_update(1, qos_info);
+  }
+  if (changed.count("mon_osd_dmclock_limit")) {
+    string qos_info = g_conf()->mon_osd_dmclock_limit;
+    _broadcast_osd_qos_update(2, qos_info);
   }
 }
 
@@ -737,6 +751,41 @@ int OSDMonitor::_update_mon_cache_settings()
   }
   return 0;
 }
+
+void OSDMonitor::_broadcast_osd_qos_update(uint8_t qos_type, const string& qos_info)
+  {
+    dout(17)<< __func__ << ", osd nums: " << osdmap.get_num_up_osds() << dendl;
+    multimap<int,MonSession*>::iterator p;
+    MonSession *s = NULL;
+  
+    if (osdmap.get_num_up_osds()<1) {
+        dout(19) << "no osdmap" <<dendl;
+        return;
+    }
+    std::map<OwnerID, ReqCnt> empty_arg;
+    for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+      if (osdmap.is_up(p->first)) {
+        MOSDDmclockQoS* qos_msg;
+        switch(qos_type) {
+          case 0:
+            qos_msg = new MOSDDmclockQoS(qos_info, MOSDDmclockQoS::DMCLOCK_RESERVATION);
+            break;
+          case 1:
+            qos_msg = new MOSDDmclockQoS(qos_info, MOSDDmclockQoS::DMCLOCK_WEIGHT);
+            break;
+          case 2:
+            qos_msg = new MOSDDmclockQoS(qos_info, MOSDDmclockQoS::DMCLOCK_LIMIT);
+            break;
+          default:
+            dout(19) << __func__ << "invalid qos_type" << dendl;
+            break;
+        }
+        s = p->second;
+        s->con->send_message(qos_msg);
+        dout(17)<< __func__ << "; send done " << p->first <<dendl;
+      }
+    }
+  }
 
 int OSDMonitor::_set_cache_sizes()
 {
