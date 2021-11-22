@@ -233,6 +233,7 @@ OPTION(mon_osd_prime_pg_temp_max_estimate, OPT_FLOAT) // max estimate of pg tota
 OPTION(mon_osd_dmclock_reservation, OPT_STR)
 OPTION(mon_osd_dmclock_weight, OPT_STR)
 OPTION(mon_osd_dmclock_limit, OPT_STR)
+OPTION(osd_gmclock_controller_period, OPT_INT)
 OPTION(mon_election_timeout, OPT_FLOAT)  // on election proposer, max waiting time for all ACKs
 OPTION(mon_lease, OPT_FLOAT)       // lease interval
 OPTION(mon_lease_renew_interval_factor, OPT_FLOAT) // on leader, to renew the lease

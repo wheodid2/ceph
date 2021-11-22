@@ -109,7 +109,7 @@ namespace ceph {
 	    return true;
       }
 
-	  void add_client_info(VolumeId vid, osd_op_type_t type) {
+      void add_client_info(VolumeId vid, osd_op_type_t type) {
 	crimson::dmclock::ClientInfo client_qos_info(client_op.reservation,
 		client_op.weight,
 		client_op.limit);

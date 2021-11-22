@@ -295,6 +295,7 @@ namespace ceph {
 
     void update_qos_info(K cl, int qos_type, double qos_val) override final {
       // empty
+      queue.update_client_info(cl);
     }
 
     void enqueue_strict(K cl, unsigned priority, T&& item) override final {

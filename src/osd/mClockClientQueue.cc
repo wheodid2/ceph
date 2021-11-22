@@ -39,6 +39,7 @@ namespace ceph {
     client_info_mgr(cct)
   {
     // empty
+    osd_shard_cct = cct;
   }
 
   const dmc::ClientInfo* mClockClientQueue::op_class_client_info_f(
@@ -60,10 +61,12 @@ namespace ceph {
     dmc::ClientInfo* qos_info;
     if (client_info_mgr.check_client_info(cl, osd_op_type_t::client_op)) {
       qos_info = client_info_mgr.get_client_info(cl, osd_op_type_t::client_op);
+      ldout(osd_shard_cct, 20) << "update_qos_info::check_client_info::true volume_id: " << cl << dendl;
     }
     else {
       client_info_mgr.add_client_info(cl, osd_op_type_t::client_op);
       qos_info = client_info_mgr.get_client_info(cl, osd_op_type_t::client_op);
+      ldout(osd_shard_cct, 20) << "update_qos_info::check_client_info::false: add_new_client volume_id: " << cl << dendl;
     }
     switch(qos_type) {
       case 0:
@@ -78,6 +81,8 @@ namespace ceph {
       default:
         break;
     }
+    queue.update_qos_info(InnerClient(cl, osd_op_type_t::client_op), qos_type, qos_val);
+    ldout(osd_shard_cct, 20) << "update_qos_info::upadted_qos_info " << *qos_info << dendl;
   }
 
   // Formatted output of the queue

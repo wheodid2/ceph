@@ -1561,6 +1561,11 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description(""),
 
+    Option("osd_gmclock_controller_period", Option::TYPE_INT, Option::LEVEL_DEV)
+    .set_default(5)
+    .add_service("mon")
+    .set_description(""),
+
     Option("mon_stat_smooth_intervals", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(6)
     .set_min(1)
@@ -2848,7 +2853,8 @@ std::vector<Option> get_global_options() {
     .add_see_also("osd_op_num_shards"),
 
     Option("osd_op_num_shards_ssd", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(8)
+    //.set_default(8)
+    .set_default(1)
     .set_flag(Option::FLAG_STARTUP)
     .set_description("")
     .add_see_also("osd_op_num_shards"),
@@ -2919,7 +2925,7 @@ std::vector<Option> get_global_options() {
 
     Option("osd_op_queue_mclock_client_op_lim", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     //.set_default(0.0)
-    .set_default(600.0)
+    .set_default(100.0)
     .set_description("mclock limit of client operator requests")
     .set_long_description("mclock limit of client operator requests when osd_op_queue is either 'mclock_opclass' or 'mclock_client'; higher values increase the limit")
     .add_see_also("osd_op_queue")

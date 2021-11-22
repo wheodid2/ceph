@@ -400,7 +400,7 @@ OSDMonitor::OSDMonitor(
    mapper(mn->cct, &mn->cpu_tp)
 {
   broadcaster_check = 0;
-  broadcast_period = 1;
+  broadcast_period = 5;
   inc_cache = std::make_shared<IncCache>(this);
   full_cache = std::make_shared<FullCache>(this);
   cct->_conf.add_observer(this);
@@ -630,6 +630,7 @@ const char **OSDMonitor::get_tracked_conf_keys() const
     "mon_osd_dmclock_reservation",
     "mon_osd_dmclock_weight",
     "mon_osd_dmclock_limit",
+    "osd_gmclock_controller_period",
     NULL
   };
   return KEYS;
@@ -667,6 +668,10 @@ void OSDMonitor::handle_conf_change(const ConfigProxy& conf,
   if (changed.count("mon_osd_dmclock_limit")) {
     string qos_info = g_conf()->mon_osd_dmclock_limit;
     _broadcast_osd_qos_update(2, qos_info);
+  }
+  if (changed.count("osd_gmclock_controller_period")) {
+    int osd_gmclock_controller_period = g_conf()->osd_gmclock_controller_period;
+    broadcast_period = osd_gmclock_controller_period;
   }
 }
 

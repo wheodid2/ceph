@@ -49,6 +49,8 @@ namespace ceph {
 
     ceph::mclock::OpClassClientInfoMgr client_info_mgr;
 
+    CephContext *osd_shard_cct;
+
   public:
 
     mClockClientQueue(CephContext *cct);
