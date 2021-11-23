@@ -34,8 +34,8 @@ namespace ceph {
 
   namespace dmc = crimson::dmclock;
 
-  template <typename T, typename K>
-  class mClockQueue : public OpQueue <T, K> {
+  template <typename T, typename K, typename D>
+  class mClockQueue : public OpQueue <T, K, D> {
 
     using priority_t = unsigned;
     using cost_t = unsigned;
@@ -218,7 +218,8 @@ namespace ceph {
     mClockQueue(
       const typename Queue::ClientInfoFunc& info_func,
       double anticipation_timeout = 0.0) :
-      queue(info_func, dmc::AtLimit::Allow, anticipation_timeout)
+      //queue(info_func, dmc::AtLimit::Allow, anticipation_timeout)
+      queue(info_func, dmc::AtLimit::Wait, anticipation_timeout)
     {
       // empty
     }
@@ -292,6 +293,11 @@ namespace ceph {
       }
     }
 
+    void update_qos_info(K cl, int qos_type, double qos_val) override final {
+      // empty
+      queue.update_client_info(cl);
+    }
+
     void enqueue_strict(K cl, unsigned priority, T&& item) override final {
       high_queue[priority].enqueue(cl, 1, std::move(item));
     }
@@ -312,11 +318,15 @@ namespace ceph {
       queue_front.emplace_front(std::pair<K,T>(cl, std::move(item)));
     }
 
+    void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) override final {
+      queue.add_request(std::move(item), cl, {(uint32_t)gvf-1, (uint32_t)gvf-1}, cost);
+    }
+
     bool empty() const override final {
       return queue.empty() && high_queue.empty() && queue_front.empty();
     }
 
-    T dequeue() override final {
+    D dequeue() override final {
       ceph_assert(!empty());
 
       if (!high_queue.empty()) {
@@ -334,10 +344,23 @@ namespace ceph {
 	return ret;
       }
 
-      auto pr = queue.pull_request();
-      ceph_assert(pr.is_retn());
-      auto& retn = pr.get_retn();
-      return std::move(*(retn.request));
+      auto result = queue.pull_request();
+      // DY: if a request is for "future", save future_time.
+      //ceph_assert(pr.is_retn());
+      if (result.is_future()) {
+	//ceph_assert(
+  	//0 == "result.is_future == true");
+        return result.getTime();
+      } else if (result.is_none()) {
+        ceph_assert(
+  	0 == "Impossible, must have checked empty() first");
+        return {};
+      } else {
+        ceph_assert(result.is_retn());
+  
+        auto &retn = result.get_retn();
+        return std::move(*retn.request);
+      }
     }
 
     void dump(ceph::Formatter *f) const override final {

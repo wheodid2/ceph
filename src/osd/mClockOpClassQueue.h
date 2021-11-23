@@ -16,6 +16,7 @@
 #pragma once
 
 #include <ostream>
+#include <variant>
 
 #include "boost/variant.hpp"
 #include "boost/container/flat_set.hpp"
@@ -30,17 +31,18 @@
 namespace ceph {
 
   using Request = OpQueueItem;
+  using WorkItem = std::variant<std::monostate, OpQueueItem, double>;
   using Client = uint64_t;
 
   // This class exists to bridge the ceph code, which treats the class
   // as the client, and the queue, where the class is
   // osd_op_type_t. So this adapter class will transform calls
   // appropriately.
-  class mClockOpClassQueue : public OpQueue<Request, Client> {
+  class mClockOpClassQueue : public OpQueue<Request, Client, WorkItem> {
 
     using osd_op_type_t = ceph::mclock::osd_op_type_t;
 
-    using queue_t = mClockQueue<Request, osd_op_type_t>;
+    using queue_t = mClockQueue<Request, osd_op_type_t, WorkItem>;
     queue_t queue;
 
     ceph::mclock::OpClassClientInfoMgr client_info_mgr;
@@ -68,6 +70,10 @@ namespace ceph {
 	    return false;
 	  }
 	});
+    }
+
+    void update_qos_info(Client cl, int qos_type, double qos_val) {
+      // empty
     }
 
     inline void enqueue_strict(Client cl,
@@ -109,13 +115,25 @@ namespace ceph {
 			  std::move(item));
     }
 
+    inline void enqueue_gvf(Client cl,
+			unsigned priority,
+			unsigned cost,
+			Request&& item,
+      double gvf) override final {
+      queue.enqueue_gvf(client_info_mgr.osd_op_type(item),
+		    priority,
+		    1u,
+		    std::move(item),
+        gvf);
+    }
+
     // Returns if the queue is empty
     inline bool empty() const override final {
       return queue.empty();
     }
 
     // Return an op to be dispatch
-    inline Request dequeue() override final {
+    inline WorkItem dequeue() override final {
       return queue.dequeue();
     }
 

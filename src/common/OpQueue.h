@@ -31,7 +31,7 @@ namespace ceph {
  * virtual functions as final in the derived class.
  */
 
-template <typename T, typename K>
+template <typename T, typename K, typename D>
 class OpQueue {
 
   public:
@@ -41,6 +41,7 @@ class OpQueue {
     // the queue in *reverse* order and to use *push_front* to insert
     // them into out.
     virtual void remove_by_class(K k, std::list<T> *out) = 0;
+    virtual void update_qos_info(K cl, int qos_type, double qos_val) = 0;
     // Enqueue op in the back of the strict queue
     virtual void enqueue_strict(K cl, unsigned priority, T &&item) = 0;
     // Enqueue op in the front of the strict queue
@@ -50,10 +51,11 @@ class OpQueue {
     // Enqueue the op in the front of the regular queue
     virtual void enqueue_front(
       K cl, unsigned priority, unsigned cost, T &&item) = 0;
+    virtual void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) = 0;
     // Returns if the queue is empty
     virtual bool empty() const = 0;
     // Return an op to be dispatch
-    virtual T dequeue() = 0;
+    virtual D dequeue() = 0;
     // Formatted output of the queue
     virtual void dump(ceph::Formatter *f) const = 0;
     // Don't leak resources on destruction

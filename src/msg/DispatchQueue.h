@@ -68,7 +68,7 @@ class DispatchQueue {
   mutable Mutex lock;
   Cond cond;
 
-  PrioritizedQueue<QueueItem, uint64_t> mqueue;
+  PrioritizedQueue<QueueItem, uint64_t, QueueItem> mqueue;
 
   std::set<pair<double, Message::ref>> marrival;
   map<Message::ref, decltype(marrival)::iterator> marrival_map;

@@ -36,6 +36,7 @@ class MClientCaps;
 class MClientLease;
 class MClientQuota;
 class MClientQoS;
+class MClientOSDQoS;  // #hong
 class MClientReclaim;
 class MClientReclaimReply;
 class MClientReconnect;

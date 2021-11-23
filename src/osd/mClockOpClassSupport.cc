@@ -78,7 +78,7 @@ namespace ceph {
       ceph_assert(message_code >= 0 && message_code < int(rep_op_msg_bitset_size));
       rep_op_msg_bitset.set(message_code);
     }
-
+    
     osd_op_type_t
     OpClassClientInfoMgr::osd_op_type(const OpQueueItem& op) const {
       osd_op_type_t type = convert_op_type(op.get_op_type());

@@ -40,8 +40,8 @@
  * of type K used to enqueue items.  e.g. you could use entity_inst_t
  * to provide fairness for different clients.
  */
-template <typename T, typename K>
-class PrioritizedQueue : public OpQueue <T, K> {
+template <typename T, typename K, typename D>
+class PrioritizedQueue : public OpQueue <T, K, D> {
   int64_t total_priority;
   int64_t max_tokens_per_subqueue;
   int64_t min_cost;
@@ -244,6 +244,10 @@ public:
     }
   }
 
+  void update_qos_info(K cl, int qos_type, double qos_val) {
+    // empty
+  }
+
   void enqueue_strict(K cl, unsigned priority, T&& item) final {
     high_queue[priority].enqueue(cl, 0, std::move(item));
   }
@@ -266,6 +270,10 @@ public:
     if (cost > max_tokens_per_subqueue)
       cost = max_tokens_per_subqueue;
     create_queue(priority)->enqueue_front(cl, cost, std::move(item));
+  }
+
+  void enqueue_gvf(K cl, unsigned priority, unsigned cost, T&& item, double gvf) final {
+    // empty
   }
 
   bool empty() const final {

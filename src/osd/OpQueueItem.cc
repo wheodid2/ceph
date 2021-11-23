@@ -15,6 +15,11 @@
 #include "OpQueueItem.h"
 #include "OSD.h"
 
+OpQueueItem::OpQueueItem()
+{
+  // empty
+}
+
 void PGOpItem::run(
   OSD *osd,
   OSDShard *sdata,

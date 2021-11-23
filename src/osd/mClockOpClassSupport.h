@@ -26,6 +26,7 @@ namespace ceph {
   namespace mclock {
 
     using op_item_type_t = OpQueueItem::OpQueueable::op_type_t;
+    using VolumeId = uint64_t;
     
     enum class osd_op_type_t {
       client_op, osd_rep_op, bg_snaptrim, bg_recovery, bg_scrub, bg_pg_delete,
@@ -33,6 +34,7 @@ namespace ceph {
     };
 
     class OpClassClientInfoMgr {
+      std::map<VolumeId,crimson::dmclock::ClientInfo> client_infos;
       crimson::dmclock::ClientInfo client_op;
       crimson::dmclock::ClientInfo osd_rep_op;
       crimson::dmclock::ClientInfo snaptrim;
@@ -49,11 +51,17 @@ namespace ceph {
 
       OpClassClientInfoMgr(CephContext *cct);
 
-      inline const crimson::dmclock::ClientInfo*
-      get_client_info(osd_op_type_t type) {
+      inline crimson::dmclock::ClientInfo*
+      get_client_info(VolumeId vid, osd_op_type_t type) {
 	switch(type) {
-	case osd_op_type_t::client_op:
-	  return &client_op;
+	case osd_op_type_t::client_op: {
+	  // Find proper ClientInfo for the specified volume Id
+	  auto ret = client_infos.find(vid);
+	  if (ret == client_infos.end())
+	    return &client_op;
+	  else
+	    return &(ret->second);
+	}
 	case osd_op_type_t::osd_rep_op:
 	  return &osd_rep_op;
 	case osd_op_type_t::bg_snaptrim:
@@ -92,6 +100,21 @@ namespace ceph {
 	  ceph_abort();
 	}
       }
+
+      inline bool check_client_info(VolumeId vid, osd_op_type_t type) {
+	auto ret = client_infos.find(vid);
+	  if (ret == client_infos.end())
+	    return false;
+	  else
+	    return true;
+      }
+
+      void add_client_info(VolumeId vid, osd_op_type_t type) {
+	crimson::dmclock::ClientInfo client_qos_info(client_op.reservation,
+		client_op.weight,
+		client_op.limit);
+	client_infos.insert(make_pair(vid, client_qos_info));
+    }
 
       osd_op_type_t osd_op_type(const OpQueueItem&) const;
 

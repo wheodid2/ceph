@@ -47,8 +47,8 @@ class DelItem
     { delete delete_this; }
 };
 
-template <typename T, typename K>
-class WeightedPriorityQueue :  public OpQueue <T, K>
+template <typename T, typename K, typename D>
+class WeightedPriorityQueue :  public OpQueue <T, K, D>
 {
   private:
     class ListPair : public bi::list_base_hook<>
@@ -311,6 +311,9 @@ class WeightedPriorityQueue :  public OpQueue <T, K>
       strict.filter_class(cl, removed);
       normal.filter_class(cl, removed);
     }
+    void update_qos_info(K cl, int qos_type, double qos_val) final {
+      // empty
+    }
     bool empty() const final {
       return strict.empty() && normal.empty();
     }
@@ -325,6 +328,9 @@ class WeightedPriorityQueue :  public OpQueue <T, K>
     }
     void enqueue_front(K cl, unsigned p, unsigned cost, T&& item) final {
       normal.insert(p, cl, cost, std::move(item), true);
+    }
+    void enqueue_gvf(K cl, unsigned p, unsigned cost, T&& item, double gvf) final {
+      normal.insert(p, cl, cost, std::move(item));
     }
     T dequeue() override {
       ceph_assert(!empty());

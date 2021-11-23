@@ -44,7 +44,7 @@ namespace ceph {
   const dmc::ClientInfo* mClockOpClassQueue::op_class_client_info_f(
     const osd_op_type_t& op_type)
   {
-    return client_info_mgr.get_client_info(op_type);
+    return client_info_mgr.get_client_info(0, op_type);
   }
 
   // Formatted output of the queue

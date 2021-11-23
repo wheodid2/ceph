@@ -1546,6 +1546,26 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description("calculate all PG mappings if estimated fraction of PGs that change is above this amount"),
 
+    Option("mon_osd_dmclock_reservation", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_service("mon")
+    .set_description(""),
+
+    Option("mon_osd_dmclock_weight", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_service("mon")
+    .set_description(""),
+
+    Option("mon_osd_dmclock_limit", Option::TYPE_STR, Option::LEVEL_DEV)
+    .set_default("")
+    .add_service("mon")
+    .set_description(""),
+
+    Option("osd_gmclock_controller_period", Option::TYPE_INT, Option::LEVEL_DEV)
+    .set_default(5)
+    .add_service("mon")
+    .set_description(""),
+
     Option("mon_stat_smooth_intervals", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(6)
     .set_min(1)
@@ -2826,13 +2846,15 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("osd_op_num_shards_hdd", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(5)
+    //.set_default(5)
+    .set_default(1)
     .set_flag(Option::FLAG_STARTUP)
     .set_description("")
     .add_see_also("osd_op_num_shards"),
 
     Option("osd_op_num_shards_ssd", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(8)
+    //.set_default(8)
+    .set_default(1)
     .set_flag(Option::FLAG_STARTUP)
     .set_description("")
     .add_see_also("osd_op_num_shards"),
@@ -2842,7 +2864,8 @@ std::vector<Option> get_global_options() {
     .set_description("Do not store full-object checksums if the backend (bluestore) does its own checksums.  Only usable with all BlueStore OSDs."),
 
     Option("osd_op_queue", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("wpq")
+    //.set_default("wpq")
+    .set_default("mclock_client")
     .set_enum_allowed( { "wpq", "prioritized", "mclock_opclass", "mclock_client", "debug_random" } )
     .set_description("which operation queue algorithm to use")
     .set_long_description("which operation queue algorithm to use; mclock_opclass and mclock_client are currently experimental")
@@ -2850,14 +2873,16 @@ std::vector<Option> get_global_options() {
     .add_see_also("osd_op_queue_cut_off"),
 
     Option("osd_op_queue_cut_off", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("low")
+    //.set_default("low")
+    .set_default("high")
     .set_enum_allowed( { "low", "high", "debug_random" } )
     .set_description("the threshold between high priority ops and low priority ops")
     .set_long_description("the threshold between high priority ops that use strict priority ordering and low priority ops that use a fairness algorithm that may or may not incorporate priority")
     .add_see_also("osd_op_queue"),
 
     Option("osd_op_queue_mclock_client_op_res", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
-    .set_default(1000.0)
+    //.set_default(1000.0)
+    .set_default(20.0)
     .set_description("mclock reservation of client operator requests")
     .set_long_description("mclock reservation of client operator requests when osd_op_queue is either 'mclock_opclass' or 'mclock_client'; higher values increase the reservation")
     .add_see_also("osd_op_queue")
@@ -2878,7 +2903,7 @@ std::vector<Option> get_global_options() {
     .add_see_also("osd_op_queue_mclock_anticipation_timeout"),
 
     Option("osd_op_queue_mclock_client_op_wgt", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
-    .set_default(500.0)
+    .set_default(1.0)
     .set_description("mclock weight of client operator requests")
     .set_long_description("mclock weight of client operator requests when osd_op_queue is either 'mclock_opclass' or 'mclock_client'; higher values increase the weight")
     .add_see_also("osd_op_queue")
@@ -2899,7 +2924,8 @@ std::vector<Option> get_global_options() {
     .add_see_also("osd_op_queue_mclock_anticipation_timeout"),
 
     Option("osd_op_queue_mclock_client_op_lim", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
-    .set_default(0.0)
+    //.set_default(0.0)
+    .set_default(100.0)
     .set_description("mclock limit of client operator requests")
     .set_long_description("mclock limit of client operator requests when osd_op_queue is either 'mclock_opclass' or 'mclock_client'; higher values increase the limit")
     .add_see_also("osd_op_queue")
