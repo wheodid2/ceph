@@ -23,6 +23,9 @@
 
 #include <map>
 #include <set>
+#include <mutex>
+#include <deque>
+#include <vector>
 
 #include "include/types.h"
 #include "include/encoding.h"
@@ -217,6 +220,26 @@ class OSDMonitor : public PaxosService,
 
 public:
   OSDMap osdmap;
+  /**********************************************************/
+  using ReqCnt = double; // I guess you should change this int type to float or double.
+  using GVF = double; // same as above
+  using OwnerID = uint64_t;
+  using OSD_Num = int;
+
+  std::map<OSD_Num, std::map<OwnerID, ReqCnt>> big_qos_map;  // #hong
+  int broadcaster_check;  // #hong
+  int broadcast_period;
+  unsigned checked_osd_num;
+  mutable std::mutex owncnt_queue_mutex;
+  std::condition_variable owncnt_queue_cvar;
+  std::deque<std::pair<OSD_Num, std::map<OwnerID, ReqCnt>>> owncnt_queue;
+  // shape: queue< pair< osd, map<owner, num_req> > >
+
+  void begin_qos_thread();  // #hong
+  void qos_request();
+  void broadcast_to_osd_for_count(); 
+  void broadcast_qos(std::map<OSD_Num, std::map<OwnerID, ReqCnt>>);
+  /**********************************************************/
 
   // config observer
   const char** get_tracked_conf_keys() const override;
@@ -291,6 +314,8 @@ public:
 
   // svc
 public:
+  std::map<int,std::map<uint64_t, double>> get_big_qos_map(){return big_qos_map;}// #hong
+  int set_big_qos_map_onebyone(int osd_index, std::map<uint64_t, double> nreq_map); // #hong
   void create_initial() override;
   void get_store_prefixes(std::set<string>& s) const override;
 
@@ -331,6 +356,7 @@ private:
   void _set_new_cache_sizes();
   void _set_cache_autotuning();
   int _update_mon_cache_settings();
+  void _broadcast_osd_qos_update(uint8_t qos_type, const string& qos_info);
 
   friend struct OSDMemCache;
   friend struct IncCache;
@@ -455,6 +481,8 @@ private:
 
   bool preprocess_pg_ready_to_merge(MonOpRequestRef op);
   bool prepare_pg_ready_to_merge(MonOpRequestRef op);
+
+  bool preprocess_svmap(MonOpRequestRef op);
 
   int _check_remove_pool(int64_t pool_id, const pg_pool_t &pool, ostream *ss);
   bool _check_become_tier(

@@ -55,6 +55,10 @@
 #include "messages/MRemoveSnaps.h"
 #include "messages/MOSDScrub.h"
 #include "messages/MRoute.h"
+#include "messages/MOSDDmclockQoS.h" // #hong
+#include "messages/MOSDControllerQoS.h"
+#include "messages/MMDSSVMap.h"
+#include "messages/MOSDSVMap.h"
 
 #include "common/TextTable.h"
 #include "common/Timer.h"
@@ -395,6 +399,8 @@ OSDMonitor::OSDMonitor(
    has_osdmap_manifest(false),
    mapper(mn->cct, &mn->cpu_tp)
 {
+  broadcaster_check = 0;
+  broadcast_period = 5;
   inc_cache = std::make_shared<IncCache>(this);
   full_cache = std::make_shared<FullCache>(this);
   cct->_conf.add_observer(this);
@@ -407,12 +413,224 @@ OSDMonitor::OSDMonitor(
   }
 }
 
+// #hong
+void OSDMonitor::begin_qos_thread()
+{
+  if (broadcaster_check > 0) {
+    return;
+  }
+  dout(17) << "qos thread gen"<<dendl;
+  std::thread scheduler_thread(&OSDMonitor::qos_request, this);
+  scheduler_thread.detach();
+  broadcaster_check = 1;
+}
+
+// #hong this is a thread for osd
+void OSDMonitor::qos_request()
+{
+  // make message, broadcast message
+
+  dout(17) << __func__ << " broadcast" << dendl;
+  while(1){
+    std::vector<OSD_Num> osd_vect;
+    std::map<OwnerID, std::map<OSD_Num, ReqCnt>> calc_map;
+    std::map<OSD_Num, std::map<OwnerID, GVF>> big_gvf_map;
+    std::map<OwnerID, ReqCnt> tot_map;
+
+    // do "continue" if there is no up_osd
+    if (osdmap.get_num_up_osds()<1) {
+      dout(17) << " up_osd#: " << osdmap.get_num_up_osds() << dendl;
+      std::this_thread::sleep_for(std::chrono::seconds(broadcast_period));
+      continue;
+    } else if (osdmap.get_num_up_osds()!=osdmap.get_num_osds()) {
+      dout(17) << " up_osd#: " << osdmap.get_num_up_osds() << \
+                  ", osd#: " << osdmap.get_num_osds() << dendl;
+                  //", in_osd#: " << osdmap.get_num_in_osds() <<
+                  //", max_osd#: " << osdmap.get_max_osd() <<
+
+      std::this_thread::sleep_for(std::chrono::seconds(broadcast_period));
+      continue;
+    }
+
+    checked_osd_num = 0;
+
+    broadcast_to_osd_for_count();
+
+    // you should change this part: get_num_up_osds == get_expected_osds?
+    while (checked_osd_num != osdmap.get_num_up_osds()) {
+      dout(10) << __func__ << "Checked_OSD num: " << checked_osd_num << \
+          ", Up_OSD num: " << osdmap.get_num_up_osds() << \
+          ", owncnt_queue.size(): " << owncnt_queue.size() << dendl;
+      std::unique_lock<std::mutex> lock(owncnt_queue_mutex);
+      owncnt_queue_cvar.wait(lock);
+
+      while (owncnt_queue.size()) {
+        checked_osd_num++; // still don't know what it means?
+        dout(11) << "checked_osd_num: " << checked_osd_num << \
+                    ", owncnt_queue.size(): " << owncnt_queue.size() << dendl;
+        std::pair<OSD_Num ,std::map<OwnerID, ReqCnt>> p = std::move(owncnt_queue.front());  // 
+        owncnt_queue.erase(owncnt_queue.begin());
+      	lock.unlock();
+
+        // 1. make global view map
+        osd_vect.emplace_back(p.first);
+        for (auto it = p.second.begin(); it != p.second.end(); it++) {
+          if (calc_map.find(it->first) == calc_map.end()) {
+            ;
+            std::map<OSD_Num, ReqCnt> temp_m;  // shape: map<osd, nreq>
+            temp_m.insert(std::make_pair(p.first, it->second));
+            auto ret = calc_map.insert(std::make_pair(it->first, temp_m));
+            dout(10) << "Calc_map.insert OSD#: " << p.first << \
+                        ", Owner#: " << it->first << ", cnt: " << it->second << dendl;
+            if (ret.second == false)
+              dout(19) << "Calc map insert fail from find false" << dendl;
+          } else {
+            auto ret = calc_map[it->first].insert(std::make_pair(p.first, it->second));
+            if (ret.second == false) {
+              dout(19) << "Calc map insert fail from find true" << dendl;
+            }
+          }
+        } // for loop ends
+        lock.lock();
+      } // while ends
+    } // while ends ends
+
+    // 2. calculate total volume count for each volume
+    for (auto it = calc_map.begin(); it != calc_map.end(); it++) {
+      double tot = 0;
+      for (auto vit = it->second.begin(); vit != it->second.end(); vit++) {
+        tot +=  vit->second;
+      }
+      auto ret = tot_map.insert(std::make_pair(it->first, tot));
+      if (ret.second == false) dout(19) << "tot_map insert fail" << dendl;
+    }
+
+    // 3. calculate Global View Factor per each volume per each OSD
+    for (unsigned i = 0; i < osdmap.get_num_up_osds(); i++) {
+      std::map<OwnerID, ReqCnt> temp_gvf_map; // shape <owner, nreq>
+      for (auto it = calc_map.begin(); it != calc_map.end(); it++) {
+        if (it->second.find(osd_vect[i]) != it->second.end()) {
+          dout(10) << "OSD#: " << osd_vect[i] << ", Owner: " << it->first << \
+                      ", tot: " << tot_map[it->first] << ", cnt: " << it->second[osd_vect[i]] << \
+                      ", gvf: " << (double) tot_map[it->first]/it->second[osd_vect[i]] << dendl;
+          auto ret = temp_gvf_map.insert(std::make_pair(it->first, (double) tot_map[it->first]/it->second[osd_vect[i]]));
+          if (ret.second == false)
+            dout(19) << "temp_gvf_map insertion failed" << dendl;
+        }
+      }
+      auto ret = big_gvf_map.insert(std::make_pair(osd_vect[i], temp_gvf_map));
+      if (ret.second == false) dout(19) << "big_gvf_map insertion failed" << dendl;
+    }
+
+    /*******************  LEGACY  **********************/
+    /*
+    // fake data generating and send them
+    multimap<int,MonSession*>::iterator p;
+    std::map<uint64_t, int> gvf_map;
+    // dout(17) << "GVF data generating" << dendl;
+    for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+      if (osdmap.is_up(p->first)) {
+        gvf_map.insert({1, 1});
+        big_gvf_map.insert(std::make_pair(p->first, gvf_map));
+      }
+    } // for loop ends
+    */
+    /**************************************************/
+    dout(17) << "broadcast_qos: big_gvf_map" << dendl;
+    broadcast_qos(big_gvf_map);
+    std::this_thread::sleep_for(std::chrono::seconds(broadcast_period));
+  }
+  // while ends
+
+  /*
+  Mutex qos_lock;
+  Cond qos_cond;
+  double period = 5.0;
+  utime_t w;
+  w.set_from_double(period);
+  */
+
+}
+
+// #hong
+void OSDMonitor::broadcast_to_osd_for_count()
+{
+  dout(17)<< __func__ << "osd nums: " << osdmap.get_num_up_osds() << dendl;
+  multimap<int,MonSession*>::iterator p;
+  MonSession *s = NULL;
+
+  if (osdmap.get_num_up_osds()<1) {
+      dout(19) << "no osdmap" <<dendl;
+      return;
+  }
+  std::map<OwnerID, ReqCnt> empty_arg;
+  for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+    if (osdmap.is_up(p->first)) {
+      MOSDControllerQoS* qos_msg = new MOSDControllerQoS(p->first, empty_arg, MOSDControllerQoS::BROADCAST_NREQ_TO_OSD);
+      s = p->second;
+      s->con->send_message(qos_msg);
+      dout(17)<< __func__ << "; send done " << p->first <<dendl;
+    }
+  }
+}
+
+// #hong
+void OSDMonitor::broadcast_qos(std::map<OSD_Num, std::map<OwnerID, ReqCnt>> big_gvf_map)
+{
+  // dout(17)<< "osd nums: " << osdmap.get_num_up_osds() << dendl;
+  multimap<int,MonSession*>::iterator p;
+  MonSession *s = NULL;
+  std::map<OwnerID, ReqCnt> gvf_map;
+
+  if (osdmap.get_num_up_osds()<1) {
+      dout(19) << "no osdmap" <<dendl;
+      return;
+  }
+
+  for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+    dout(17)<< "in for a loop "<< p->first <<dendl;
+    if (osdmap.is_up(p->first)) {
+      gvf_map = big_gvf_map[p->first];
+      MOSDControllerQoS* qos_msg = new MOSDControllerQoS(p->first, gvf_map, MOSDControllerQoS::REQUEST_TO_WORK);
+
+      s = p->second;
+      s->con->send_message(qos_msg);
+      dout(17)<< __func__ <<"; send done " << p->first <<dendl;
+    }
+  }
+}
+
+// #hong
+int OSDMonitor::set_big_qos_map_onebyone(OSD_Num osd_index, std::map<OwnerID, ReqCnt> nreq_map){
+  // big_qos_map;
+  // big_qos_map updating
+  std::map<OSD_Num, std::map<OwnerID, ReqCnt>>::iterator out_iter;
+  std::map<OwnerID, ReqCnt>::iterator in_iter;
+
+  //std::map<int, std::map<uint64_t, int>> out_map = get_big_qos_map();
+  out_iter = big_qos_map.find(osd_index);
+  if (out_iter != big_qos_map.end()) {
+    out_iter->second = nreq_map; // possible?
+  } else {
+    // new osd_index
+    big_qos_map.insert(std::make_pair(osd_index, nreq_map));
+    dout(16) << big_qos_map.size() << dendl;
+  }
+  return 1;
+  // big_qos_map updating
+
+}
+
 const char **OSDMonitor::get_tracked_conf_keys() const
 {
   static const char* KEYS[] = {
     "mon_memory_target",
     "mon_memory_autotune",
     "rocksdb_cache_size",
+    "mon_osd_dmclock_reservation",
+    "mon_osd_dmclock_weight",
+    "mon_osd_dmclock_limit",
+    "osd_gmclock_controller_period",
     NULL
   };
   return KEYS;
@@ -437,6 +655,23 @@ void OSDMonitor::handle_conf_change(const ConfigProxy& conf,
            << ". Unable to update cache size."
            << dendl;
     }
+  }
+
+  if (changed.count("mon_osd_dmclock_reservation")) {
+    string qos_info = g_conf()->mon_osd_dmclock_reservation;
+    _broadcast_osd_qos_update(0, qos_info);
+  }
+  if (changed.count("mon_osd_dmclock_weight")) {
+    string qos_info = g_conf()->mon_osd_dmclock_weight;
+    _broadcast_osd_qos_update(1, qos_info);
+  }
+  if (changed.count("mon_osd_dmclock_limit")) {
+    string qos_info = g_conf()->mon_osd_dmclock_limit;
+    _broadcast_osd_qos_update(2, qos_info);
+  }
+  if (changed.count("osd_gmclock_controller_period")) {
+    int osd_gmclock_controller_period = g_conf()->osd_gmclock_controller_period;
+    broadcast_period = osd_gmclock_controller_period;
   }
 }
 
@@ -521,6 +756,41 @@ int OSDMonitor::_update_mon_cache_settings()
   }
   return 0;
 }
+
+void OSDMonitor::_broadcast_osd_qos_update(uint8_t qos_type, const string& qos_info)
+  {
+    dout(17)<< __func__ << ", osd nums: " << osdmap.get_num_up_osds() << dendl;
+    multimap<int,MonSession*>::iterator p;
+    MonSession *s = NULL;
+  
+    if (osdmap.get_num_up_osds()<1) {
+        dout(19) << "no osdmap" <<dendl;
+        return;
+    }
+    std::map<OwnerID, ReqCnt> empty_arg;
+    for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+      if (osdmap.is_up(p->first)) {
+        MOSDDmclockQoS* qos_msg;
+        switch(qos_type) {
+          case 0:
+            qos_msg = new MOSDDmclockQoS(qos_info, MOSDDmclockQoS::DMCLOCK_RESERVATION);
+            break;
+          case 1:
+            qos_msg = new MOSDDmclockQoS(qos_info, MOSDDmclockQoS::DMCLOCK_WEIGHT);
+            break;
+          case 2:
+            qos_msg = new MOSDDmclockQoS(qos_info, MOSDDmclockQoS::DMCLOCK_LIMIT);
+            break;
+          default:
+            dout(19) << __func__ << "invalid qos_type" << dendl;
+            break;
+        }
+        s = p->second;
+        s->con->send_message(qos_msg);
+        dout(17)<< __func__ << "; send done " << p->first <<dendl;
+      }
+    }
+  }
 
 int OSDMonitor::_set_cache_sizes()
 {
@@ -967,6 +1237,14 @@ void OSDMonitor::start_mapping()
   } else {
     dout(10) << __func__ << " no pools, no mapping job" << dendl;
     mapping_job = nullptr;
+  }
+
+  // #honghong
+  // check the rank is 0(a monitor with highest priority)
+  // if rank is 0, make a thread for sending osd qos message 
+  if (mon->rank == 0 && broadcaster_check <1) {
+    dout(17) << "begin_qos_thread -- mon." << mon->name << "( 0 )" << dendl;
+    begin_qos_thread();
   }
 }
 
@@ -2518,6 +2796,10 @@ bool OSDMonitor::preprocess_query(MonOpRequestRef op)
   case MSG_REMOVE_SNAPS:
     return preprocess_remove_snaps(op);
 
+  case MSG_MDS_MONITOR_SVMAP:
+    dout(17) << "MSG_MDS_MONITOR_SVMAP" << dendl;
+    return preprocess_svmap(op);
+
   default:
     ceph_abort();
     return true;
@@ -3983,6 +4265,41 @@ bool OSDMonitor::prepare_remove_snaps(MonOpRequestRef op)
       }
     }
   }
+  return true;
+}
+
+// MDS->Mon->OSD: SVMap
+bool OSDMonitor::preprocess_svmap(MonOpRequestRef op)
+{
+  op->mark_osdmon_event(__func__);
+
+  dout(17) << __func__ << " osd nums: " << osdmap.get_num_up_osds() << dendl;
+  multimap<int,MonSession*>::iterator p;
+  MonSession *s = NULL;
+
+  if (osdmap.get_num_up_osds()<1) {
+      dout(41) << "no osdmap" <<dendl;
+      return true;
+  }
+
+  MMDSSVMap *m = static_cast<MMDSSVMap*>(op->get_req());
+
+  std::string volume_id = m->get_volume_id();
+  std::string session_id = m->get_session_id();
+
+  dout(17) << "volume_id: " << volume_id << ", session_id: " << session_id << dendl;
+
+  for (p = mon->session_map.by_osd.begin(); p!=mon->session_map.by_osd.end(); ++p) {
+    dout(17)<< "in for loop "<< p->first <<dendl;
+    if (osdmap.is_up(p->first)) {
+      //MOSDSVMap *sv_msg = new MOSDSVMap(mon->rank, session_id, volume_id);
+      auto sv_msg = MOSDSVMap::create(mon->rank, session_id, volume_id);
+      s = p->second;
+      s->con->send_message(sv_msg.detach());
+      dout(17)<< "send done " << p->first <<dendl;
+    }
+  }
+
   return true;
 }
 

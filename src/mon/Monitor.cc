@@ -61,6 +61,9 @@
 #include "messages/MTimeCheck2.h"
 #include "messages/MPing.h"
 
+#include "messages/MOSDControllerQoS.h"
+#include "messages/MMDSSVMap.h"
+
 #include "common/strtol.h"
 #include "common/ceph_argparse.h"
 #include "common/Timer.h"
@@ -4294,6 +4297,7 @@ void Monitor::remove_all_sessions()
     logger->set(l_mon_num_sessions, session_map.get_size());
 }
 
+// #hong check
 void Monitor::send_mon_message(Message *m, int rank)
 {
   messenger->send_to_mon(m, monmap->get_addrs(rank));
@@ -4489,6 +4493,10 @@ void Monitor::dispatch_op(MonOpRequestRef op)
       /* FIXME: check what's being subscribed, filter accordingly */
       handle_subscribe(op);
       return;
+    
+    case MSG_OSD_CONTROLLER_QOS:
+      handle_osd_ctrl_qos(op);
+      return;
   }
 
   /* well, maybe the op belongs to a service... */
@@ -4509,6 +4517,7 @@ void Monitor::dispatch_op(MonOpRequestRef op)
     case MSG_OSD_PG_CREATED:
     case MSG_REMOVE_SNAPS:
     case MSG_OSD_PG_READY_TO_MERGE:
+    case MSG_MDS_MONITOR_SVMAP:
       paxos_service[PAXOS_OSDMAP]->dispatch(op);
       return;
 
@@ -4667,6 +4676,51 @@ void Monitor::dispatch_op(MonOpRequestRef op)
   }
   dout(1) << "dropping unexpected " << *(op->get_req()) << dendl;
   return;
+}
+
+void Monitor::handle_osd_ctrl_qos(MonOpRequestRef op)
+{
+  MOSDControllerQoS *m = static_cast<MOSDControllerQoS*>(op->get_req());
+  dout(27) << __func__ << " " << *m << dendl;
+  dout(17) << " nreq_map size is " << m->get_nreq_map().size() << dendl;
+
+  //dout(17) << "|message_sub_op_str " << m->get_sub_op_str() << dendl;
+  //dout(17) << "|  nreq_map size is " << m->get_nreq_map().size() << dendl;
+  //dout(17) << "|       osd from is " << m->get_from() << dendl;
+  // update the map
+
+  // legacy 
+  /*
+  int osd_index = m->get_from();
+  std::map<uint64_t, int> nreq_map = m->get_nreq_map();
+  int map_updating_val = osdmon()->set_big_qos_map_onebyone(osd_index, nreq_map);
+  if (map_updating_val<0) {
+  }
+  dout(17) << __func__ << "|  big_qos_map size " << osdmon()->get_big_qos_map().size() << dendl;
+  */
+
+  /*
+  if (osdmon()->get_big_qos_map().size() > 0) {
+    std::map<int, std::map<uint64_t, int>>::iterator out_iter;
+    out_iter = osdmon()->get_big_qos_map().begin();
+    dout(17) << "osd 0 size is " << out_iter->second.size() << dendl;
+  }
+  */
+  std::unique_lock<std::mutex> lock(osdmon()->owncnt_queue_mutex);
+  osdmon()->owncnt_queue.push_back(std::make_pair(m->get_from(), std::move(m->get_nreq_map())));  // what should you have put in?
+  osdmon()->owncnt_queue_cvar.notify_all();
+  dout(17) << __func__ << "; notify all" << dendl;
+
+  //dout(17) << "osd num is " << m->get_from() << dendl;
+
+  //OSDMonitor::  
+  /*
+  do something with received map
+  form of map: <owner, num of requests>
+  std::map<int, std::map<uint64_t, int>> new_map = osdmon()->get_big_qos_map(); // or use iterator
+  -> update the map
+  */
+
 }
 
 void Monitor::handle_ping(MonOpRequestRef op)
