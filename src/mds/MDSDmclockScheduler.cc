@@ -92,7 +92,8 @@ void MDSDmclockScheduler::send_mon_svmap(Session *session) {
     // send message to monitor
     // one thing you have to check is the detach() does work or not.
     dout(17) << __func__ << " volume_id: " << vid << " , session_id: " << sid << dendl;
-    monc->send_mon_message(m.detach());  // define the monc.
+    if (monc != NULL)
+      monc->send_mon_message(m.detach());  // define the monc.
 
     // send to other MDSs.
     /*
@@ -865,14 +866,17 @@ void MDSDmclockScheduler::process_controller()
   while (state == SchedulerState::RUNNING) {
     process_controller_handler();
   }
+  controller_stop = false;
   dout(10) << __func__ << " thread has been joined" << dendl;
 }
 
 void MDSDmclockScheduler::begin_controller_thread()
 {
-  if (mds->get_nodeid() == 0) {
-    dout(10) << __func__ << " from " << mds->get_nodeid() << dendl;
-    controller_thread = std::thread([this](){process_controller();});
+  if (mds != nullptr) {
+    if (mds->get_nodeid() == 0) {
+      dout(10) << __func__ << " from " << mds->get_nodeid() << dendl;
+      controller_thread = std::thread([this](){process_controller();});
+    }
   }
 }
 

@@ -468,7 +468,7 @@ public:
       Queue::CanHandleRequestFunc(),
       Queue::HandleRequestFunc())
   {
-    // empty
+    monc = NULL;
   }
 
   MDSDmclockScheduler(MDSRank *m, MonClient *_monc) :
