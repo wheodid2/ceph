@@ -11710,6 +11710,16 @@ void OSD::ShardedOpWQ::_enqueue(OpQueueItem&& item) {
   uint32_t shard_index =
     item.get_ordering_token().hash_to_shard(osd->shards.size());
 
+  // hong
+  volume_id_t curr_vol_id;
+  #define hong 12
+  #if hong > 0
+  {
+    curr_vol_id = osd->get_session_volume_map(item.get_owner());
+    increase_shard_request(shard_index, curr_vol_id);
+  }
+  #endif
+
   OSDShard* sdata = osd->shards[shard_index];
   assert (NULL != sdata);
   unsigned priority = item.get_priority();
@@ -11720,7 +11730,7 @@ void OSD::ShardedOpWQ::_enqueue(OpQueueItem&& item) {
 
   dout(20) << __func__ << " " << item << dendl;
   if (priority >= osd->op_prio_cutoff) {
-    dout(17) << "op_prio_curoff" << dendl;
+    dout(17) << "op_prio_cutoff" << dendl;
     sdata->pqueue->enqueue_strict(
       item.get_owner(), priority, std::move(item));
   }
@@ -11731,6 +11741,41 @@ void OSD::ShardedOpWQ::_enqueue(OpQueueItem&& item) {
 
     double gvf = osd->get_global_view_factor(osd->get_session_volume_map(item.get_owner()));
     dout(17) << "gvf: " << gvf << dendl;
+
+    #if hong > 0
+    {
+      if (get_shd_state()==0) {
+        // timestamp
+        shd_update_time = ceph_clock_now();
+        set_shd_state(1);
+      } else {
+        // check time out(1sec)
+        utime_t now = ceph_clock_now();
+        utime_t timeout;
+        timeout.set_from_double(shd_update_time + utime_t(1, 0));
+
+        if (now > timeout) {
+          // time out! do gvf_ratio updating
+          gvf_ratio_map_update();
+          // initialize
+          set_shd_state(0);
+          zero_shd_vol_info_map();
+        }
+      }
+
+      // added with new ratio map
+      // dout(17) << "  shard_index & curr_vol_id " << shard_index << ", "<<curr_vol_id << dendl;
+      double gvf_ratio = get_shard_gvf_ratio(shard_index, curr_vol_id);
+      
+      if (gvf_ratio >=0) {
+        gvf = gvf * (1/gvf_ratio);
+      }
+      else {
+        dout(17) << "  negative gvf_ratio: " << gvf_ratio  << dendl;
+      }
+    }
+    #endif
+
     if (gvf == 0)
       gvf = 1;
     //sdata->pqueue->enqueue(
@@ -11743,6 +11788,105 @@ void OSD::ShardedOpWQ::_enqueue(OpQueueItem&& item) {
   std::lock_guard l{sdata->sdata_wait_lock};
   sdata->sdata_cond.notify_one();
 }
+
+
+/************************** hong *****************************/
+void OSD::ShardedOpWQ::increase_shard_request(shard_idx_t shard_index, volume_id_t vol_id){
+  // initializing or increasing count
+  std::map<volume_id_t, volume_cnt_t> tmp_vol_cnt_map;
+  tmp_vol_cnt_map.insert(make_pair(vol_id, (volume_cnt_t)1));
+  auto tmp_itr = shd_vol_info_map.insert(make_pair(shard_index, tmp_vol_cnt_map));
+  if(!tmp_itr.second) {
+    // auto in_cnt_map = tmp_itr.first->second;
+    auto ret = tmp_itr.first->second.insert(make_pair(vol_id, (volume_cnt_t)1));
+    dout(17) << vol_id << " shard_vol_cnt_1 " << ret.first->second <<dendl;
+    if (!ret.second) {
+      ret.first->second = ret.first->second+1;    
+      dout(17) << vol_id << " shard_vol_cnt_2 " << ret.first->second <<dendl;
+    }
+  }
+
+
+  // initializing ratio map
+  // std::map<shard_idx_t, std::map<volume_id_t, double>>iterator ratio_itr = shd_gvf_ratio_map.find(shard_index);
+  std::map<volume_id_t, double> tmp_vol_ratio_map;
+  tmp_vol_ratio_map.insert(make_pair(vol_id, (double)-10));
+  auto ratio_itr = shd_gvf_ratio_map.insert(make_pair(shard_index, tmp_vol_ratio_map));
+  if(!ratio_itr.second){
+    // auto in_ratio_map = ratio_itr.first->second;
+    auto ret2 = ratio_itr.first->second.insert(make_pair(vol_id, (double)-10));
+    if (!ret2.second) {
+      ;// ret2.fisrt->second = (double)1;
+    }
+  }
+}
+
+void OSD::ShardedOpWQ::zero_shd_vol_info_map()
+{
+  // clear all data in shd_vol_info_map
+  for( auto shd_itr = shd_vol_info_map.begin(); shd_itr != shd_vol_info_map.end(); shd_itr++) {
+    shd_itr->second.clear();
+  }
+  shd_vol_info_map.clear();
+}
+
+double OSD::ShardedOpWQ::get_shard_gvf_ratio(shard_idx_t shard_index, volume_id_t vol_id)
+{
+  double ratio; // trash value
+
+  auto shd_iter = shd_gvf_ratio_map.find(shard_index);
+  if (shd_iter!=shd_gvf_ratio_map.end()) {
+    std::map<volume_id_t, double> unit_vol_map = shd_iter->second;
+    auto unit_iter = unit_vol_map.find(vol_id);
+    if(unit_iter != unit_vol_map.end()&& unit_iter->second<=100){
+      ratio = unit_iter->second;
+    } else {
+      // dout(17) << " volume_id is not found in shd_gvf_ratio_map " << dendl;
+      ratio = -1;
+    }
+  } else {
+    // dout(17) << " enqueue shard coordination failed due to shard indexing " << dendl;
+    ratio = -5;
+  }
+
+  return ratio;
+}
+
+
+// below updating works under non-empty condition.
+void OSD::ShardedOpWQ::gvf_ratio_map_update()
+{
+  /* std::map<volume_id_t, volume_cnt_t> temp_volume */
+  std::map<volume_id_t, volume_cnt_t> tot_map;
+
+  // get total_map: calculate volume count for each volume
+  for(auto shd_itr = shd_vol_info_map.begin(); shd_itr != shd_vol_info_map.end(); shd_itr++){
+    for(auto vol_itr = shd_itr->second.begin(); vol_itr != shd_itr->second.end(); vol_itr++){
+      auto ret = tot_map.insert(make_pair(vol_itr->first, vol_itr->second));
+      if (!ret.second) {ret.first->second += vol_itr->second;}
+    }
+  }
+  // calculate gvf ratio each volume, shard
+  for(auto shd_itr = shd_gvf_ratio_map.begin(); shd_itr != shd_gvf_ratio_map.end(); shd_itr++) {
+    for(auto vol_itr = shd_itr->second.begin(); vol_itr != shd_itr->second.end(); vol_itr++) {
+      // std::map<volume_id_t, volume_cnt_t> temp_cnt_map
+      auto temp_cnt_map = shd_vol_info_map[shd_itr->first];
+
+      shard_idx_t shard_index = shd_itr->first;  // only for dout
+
+      /// fix this under values
+
+      if (shd_vol_info_map.find(shd_itr->first) != shd_vol_info_map.end()) {
+        dout(17) << " this volume "<< shd_vol_info_map[shd_itr->first] << dendl;
+      }
+
+      volume_cnt_t curr_cnt = temp_cnt_map[vol_itr->first];
+      vol_itr->second = (double) curr_cnt / tot_map[vol_itr->first];
+      dout(17) << " vol_shd_cnt: " << curr_cnt << ", vol_total_cnt: " << tot_map[vol_itr->first] << dendl;
+    }
+  }
+}
+/**************************************************************/
 
 void OSD::ShardedOpWQ::_enqueue_front(OpQueueItem&& item)
 {

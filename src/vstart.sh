@@ -13,7 +13,7 @@ if [ -n "$VSTART_DEST" ]; then
 
   CEPH_CONF_PATH=$VSTART_DEST
   CEPH_DEV_DIR=$VSTART_DEST/dev
-  CEPH_MNT_DIR="/home/daeyang/mnt/ceph_ssd_"
+  CEPH_MNT_DIR="/home/hong/mnt/ceph_ssd_"
   CEPH_OUT_DIR=$VSTART_DEST/out
   CEPH_ASOK_DIR=$VSTART_DEST/out
 fi
@@ -91,7 +91,7 @@ else
 fi
 
 [ -z "$CEPH_NUM_MON" ] && CEPH_NUM_MON=1
-[ -z "$CEPH_NUM_OSD" ] && CEPH_NUM_OSD=5
+[ -z "$CEPH_NUM_OSD" ] && CEPH_NUM_OSD=1
 [ -z "$CEPH_NUM_MDS" ] && CEPH_NUM_MDS=1
 [ -z "$CEPH_NUM_MGR" ] && CEPH_NUM_MGR=1
 [ -z "$CEPH_NUM_FS"  ] && CEPH_NUM_FS=1
@@ -100,7 +100,7 @@ fi
 
 [ -z "$CEPH_DIR" ] && CEPH_DIR="$PWD"
 [ -z "$CEPH_DEV_DIR" ] && CEPH_DEV_DIR="$CEPH_DIR/dev"
-[ -z "$CEPH_MNT_DIR" ] && CEPH_MNT_DIR="/home/daeyang/mnt/ceph_ssd_"
+[ -z "$CEPH_MNT_DIR" ] && CEPH_MNT_DIR="/home/hong/mnt/ceph_ssd_"
 [ -z "$CEPH_OUT_DIR" ] && CEPH_OUT_DIR="$CEPH_DIR/out"
 [ -z "$CEPH_RGW_PORT" ] && CEPH_RGW_PORT=8000
 [ -z "$CEPH_CONF_PATH" ] && CEPH_CONF_PATH=$CEPH_DIR

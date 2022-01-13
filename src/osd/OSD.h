@@ -1833,7 +1833,43 @@ protected:
 		ShardedThreadPool* tp)
       : ShardedThreadPool::ShardedWQ<OpQueueItem>(ti, si, tp),
         osd(o) {
+          init_shard_cnt_map();
+          set_shd_state(0);
     }
+
+    /****** #hong shard_cnt_map **********/
+
+    using shard_idx_t = uint32_t;
+    using volume_id_t = uint64_t;
+    using volume_cnt_t = uint32_t;
+
+    std::map<shard_idx_t, std::map<volume_id_t, volume_cnt_t>> shd_vol_info_map;
+    std::map<shard_idx_t, std::map<volume_id_t, double>> shd_gvf_ratio_map;
+
+    utime_t shd_update_time;
+    uint32_t shd_state;
+
+    void set_shd_state(uint32_t set_val){ shd_state = set_val;}
+    uint32_t get_shd_state(){return shd_state;}
+
+    void zero_shd_vol_info_map();
+    
+    void init_shard_cnt_map(){
+        _init_volume_cnt_map();
+    }
+    void _init_volume_cnt_map(){
+        for(uint32_t i = 0; i < osd->num_shards; i++) {
+            std::map<volume_id_t, volume_cnt_t> temp_unit;
+            shd_vol_info_map.insert(make_pair(i, temp_unit));
+        }
+
+        shd_update_time = ceph_clock_now();
+    }
+
+    void increase_shard_request(shard_idx_t shard_index, volume_id_t vol_id);
+    double get_shard_gvf_ratio(shard_idx_t shard_index, volume_id_t vol_id);
+    void gvf_ratio_map_update();
+    /*************************************/
 
     void _add_slot_waiter(
       spg_t token,
